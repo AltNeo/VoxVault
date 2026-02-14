@@ -1,0 +1,7 @@
+﻿{
+  "error": {
+    "code": "TRANSCRIPTION_FAILED",
+    "message": "Failed to transcribe audio with upstream provider."
+  },
+  "request_id": "req_01jt0ybewmgwdqtz1gr8pn5fgg"
+}

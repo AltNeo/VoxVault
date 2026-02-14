@@ -1,0 +1,7 @@
+﻿{
+  "error": {
+    "code": "INTERNAL_SERVER_ERROR",
+    "message": "Unable to read transcriptions from storage."
+  },
+  "request_id": "req_01jt0ynk9kex9s66h4pq7pv994"
+}

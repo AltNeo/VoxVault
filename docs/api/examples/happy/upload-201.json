@@ -1,0 +1,23 @@
+﻿{
+  "id": "b4b9f922a10f4684b7eff3f0a1832e4b",
+  "filename": "meeting-notes.webm",
+  "source": "upload",
+  "language": "en",
+  "duration_seconds": 13.42,
+  "status": "completed",
+  "text": "Project kickoff is scheduled for Monday morning at 10.",
+  "created_at": "2026-02-14T09:12:31Z",
+  "audio_url": "/api/audio/b4b9f922a10f4684b7eff3f0a1832e4b",
+  "chunks": [
+    {
+      "start": 0.0,
+      "end": 4.7,
+      "text": "Project kickoff is scheduled"
+    },
+    {
+      "start": 4.7,
+      "end": 13.42,
+      "text": "for Monday morning at 10."
+    }
+  ]
+}

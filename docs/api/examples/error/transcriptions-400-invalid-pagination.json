@@ -1,0 +1,7 @@
+﻿{
+  "error": {
+    "code": "INVALID_PAGINATION",
+    "message": "Query parameter 'limit' must be greater than 0."
+  },
+  "request_id": "req_01jt0yh7y5c4pz5jzht92t7mxg"
+}

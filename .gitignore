@@ -1,0 +1,29 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+ENV/
+.env
+.pytest_cache/
+.ruff_cache/
+
+# --- Web / Frontend ---
+node_modules/
+dist/
+build/
+.DS_Store
+*.log
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# --- Databases / Sensitive ---
+*.db
+*.sqlite3
+backend/backups/*
+!backend/backups/.gitkeep
+.vscode/
+.idea/

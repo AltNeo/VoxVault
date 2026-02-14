@@ -1,0 +1,23 @@
+﻿{
+  "id": "db3999e11ab64722bb56bf7d2ff4042e",
+  "filename": "standup.wav",
+  "source": "recording",
+  "language": "en",
+  "duration_seconds": 7.88,
+  "status": "completed",
+  "text": "Yesterday I finished the API docs and started frontend integration.",
+  "created_at": "2026-02-14T08:55:02Z",
+  "audio_url": "/api/audio/db3999e11ab64722bb56bf7d2ff4042e",
+  "chunks": [
+    {
+      "start": 0.0,
+      "end": 3.2,
+      "text": "Yesterday I finished the API docs"
+    },
+    {
+      "start": 3.2,
+      "end": 7.88,
+      "text": "and started frontend integration."
+    }
+  ]
+}

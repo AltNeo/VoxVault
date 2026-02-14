@@ -1,0 +1,29 @@
+# Target Python version
+target-version = "py310"
+
+# Line length standard (Industry standard is 88 or 100)
+line-length = 100
+
+[lint]
+# Enable specific rule sets
+# E: pycodestyle errors
+# F: Pyflakes (logic errors)
+# I: isort (import sorting)
+# B: flake8-bugbear (common design flaws)
+# C4: flake8-comprehensions
+select = ["E", "F", "I", "B", "C4"]
+
+# Ignore specific rules if they conflict with your style
+ignore = ["E501"] # Ignore long lines already handled by formatter
+
+[format]
+# Use double quotes for strings (Standard PEP 8 preference)
+quote-style = "double"
+
+# Indent with 4 spaces
+indent-style = "space"
+
+# Automatically sort imports
+[lint.isort]
+combine-as-imports = true
+force-single-line = false

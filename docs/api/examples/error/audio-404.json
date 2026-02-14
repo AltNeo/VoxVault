@@ -1,0 +1,7 @@
+﻿{
+  "error": {
+    "code": "NOT_FOUND",
+    "message": "Audio file not found for transcription id."
+  },
+  "request_id": "req_01jt0yx5vsmv1k0f0a37e1949e"
+}

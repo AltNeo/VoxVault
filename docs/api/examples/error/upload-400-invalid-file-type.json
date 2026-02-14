@@ -1,0 +1,10 @@
+﻿{
+  "error": {
+    "code": "INVALID_FILE_TYPE",
+    "message": "Unsupported file extension: exe.",
+    "details": {
+      "allowed_extensions": ["m4a", "mp3", "wav", "webm"]
+    }
+  },
+  "request_id": "req_01jt0xz1982p9r31af3s4yzj8n"
+}
