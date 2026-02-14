@@ -27,6 +27,7 @@ class Settings(BaseSettings):
 
     backup_dir: Path = Path("backups")
     sqlite_path: Path = Path("transcriptions.db")
+    diagnostics_log_path: Path = Path("diagnostics/transactions.log")
 
     max_upload_size_mb: int = 50
     request_timeout_seconds: float = 60.0

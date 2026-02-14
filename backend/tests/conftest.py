@@ -21,6 +21,7 @@ def client(tmp_path):
     settings = Settings(
         backup_dir=tmp_path / "backups",
         sqlite_path=tmp_path / "transcriptions.db",
+        diagnostics_log_path=tmp_path / "diagnostics" / "transactions.log",
         chutes_api_url=None,
         chutes_api_key=None,
     )

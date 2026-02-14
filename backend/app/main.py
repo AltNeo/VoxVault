@@ -1,4 +1,7 @@
+import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
+from time import perf_counter
 from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException, Request
@@ -19,12 +22,14 @@ from app.services.chutes_client import ChutesClient
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     resolved_settings = settings or get_settings()
+    transaction_logger = _configure_transaction_logger(resolved_settings.diagnostics_log_path)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         services: AppServices = app.state.services
         services.storage.initialize()
         services.backup_service.backup_dir.mkdir(parents=True, exist_ok=True)
+        resolved_settings.diagnostics_log_path.parent.mkdir(parents=True, exist_ok=True)
         yield
 
     app = FastAPI(
@@ -32,6 +37,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         version=resolved_settings.app_version,
         lifespan=lifespan,
     )
+    app.state.transaction_logger = transaction_logger
 
     app.state.services = AppServices(
         settings=resolved_settings,
@@ -57,8 +63,32 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def attach_request_id(request: Request, call_next):
         request_id = request.headers.get("x-request-id") or uuid4().hex
         request.state.request_id = request_id
-        response = await call_next(request)
+        start_time = perf_counter()
+
+        try:
+            response = await call_next(request)
+        except Exception:
+            duration_ms = (perf_counter() - start_time) * 1000
+            transaction_logger.exception(
+                "request.failed request_id=%s method=%s path=%s duration_ms=%.2f",
+                request_id,
+                request.method,
+                request.url.path,
+                duration_ms,
+            )
+            raise
+
+        duration_ms = (perf_counter() - start_time) * 1000
         response.headers["x-request-id"] = request_id
+        response.headers["x-response-time-ms"] = f"{duration_ms:.2f}"
+        transaction_logger.info(
+            "request.completed request_id=%s method=%s path=%s status_code=%s duration_ms=%.2f",
+            request_id,
+            request.method,
+            request.url.path,
+            response.status_code,
+            duration_ms,
+        )
         return response
 
     @app.exception_handler(APIError)
@@ -121,6 +151,31 @@ def _get_request_id(request: Request) -> str:
     if isinstance(request_id, str) and request_id:
         return request_id
     return uuid4().hex
+
+
+def _configure_transaction_logger(log_path: Path) -> logging.Logger:
+    logger = logging.getLogger("app.transactions")
+    logger.setLevel(logging.INFO)
+    logger.propagate = False
+
+    resolved_log_path = log_path.resolve()
+    resolved_log_path.parent.mkdir(parents=True, exist_ok=True)
+
+    existing_paths = {
+        Path(handler.baseFilename).resolve()
+        for handler in logger.handlers
+        if isinstance(handler, logging.FileHandler)
+    }
+
+    if resolved_log_path not in existing_paths:
+        file_handler = logging.FileHandler(resolved_log_path, encoding="utf-8")
+        file_handler.setLevel(logging.INFO)
+        file_handler.setFormatter(
+            logging.Formatter("%(asctime)s | %(levelname)s | %(message)s")
+        )
+        logger.addHandler(file_handler)
+
+    return logger
 
 
 app = create_app()

@@ -8,6 +8,17 @@ This repository is split by runtime:
 
 Store generated or persisted audio in `backend/backups/` (do not commit large media files).
 
+Create a git commit every time you feel that we have done a significant amount of work. You are responsible for writing the commit messages and it should be very clear. The industry standard is called Conventional Commits. It is a specification that adds a lightweight layer of structure to commit messages, making them machine-readable and easy for humans to scan.
+
+    The Conventional Commits Structure
+    The strict method follows this mandatory format:
+
+    <type>[optional scope]: <description>
+
+    [optional body]
+
+    [optional footer(s)]
+
 ## Build, Test, and Development Commands
 Run commands from the relevant subfolder:
 - `cd backend && uvicorn app.main:app --reload --port 8000`: start API locally.
@@ -15,6 +26,7 @@ Run commands from the relevant subfolder:
 - `cd backend && pytest -q`: run backend tests.
 - `cd frontend && npm install`: install frontend dependencies.
 - `cd frontend && npm run dev`: start Vite dev server (default `localhost:5173`).
+- `./run-frontend.ps1`: single-command frontend workflow from repo root (installs deps if needed, runs tests, runs build, then starts dev server). Optional flags: `-Install`, `-SkipTest`, `-SkipBuild`.
 - `cd frontend && npm run build`: create production frontend build.
 - `cd frontend && npx prettier --write .`: format frontend code.
 

@@ -1,11 +1,15 @@
 import base64
+import logging
 from dataclasses import dataclass
 from pathlib import Path
+from time import perf_counter
 from typing import Any
 
 import httpx
 
 from app.core.exceptions import APIError
+
+logger = logging.getLogger("app.transactions")
 
 
 @dataclass(slots=True)
@@ -35,6 +39,7 @@ class ChutesClient:
             }
 
         endpoint = self._resolve_endpoint(self.api_url)
+        start_time = perf_counter()
         try:
             async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
                 response = await client.post(
@@ -43,17 +48,36 @@ class ChutesClient:
                     json={"audio_b64": "example-string"},
                 )
         except httpx.TimeoutException as exc:
+            duration_ms = (perf_counter() - start_time) * 1000
+            logger.warning(
+                "upstream.ping.timeout endpoint=%s duration_ms=%.2f",
+                endpoint,
+                duration_ms,
+            )
             raise APIError(
                 code="CHUTES_TIMEOUT",
                 message="Transcription provider timed out during ping.",
                 status_code=504,
             ) from exc
         except httpx.HTTPError as exc:
+            duration_ms = (perf_counter() - start_time) * 1000
+            logger.warning(
+                "upstream.ping.connection_error endpoint=%s duration_ms=%.2f",
+                endpoint,
+                duration_ms,
+            )
             raise APIError(
                 code="CHUTES_CONNECTION_ERROR",
                 message="Unable to reach transcription provider during ping.",
                 status_code=502,
             ) from exc
+        duration_ms = (perf_counter() - start_time) * 1000
+        logger.info(
+            "upstream.ping.completed endpoint=%s status_code=%s duration_ms=%.2f",
+            endpoint,
+            response.status_code,
+            duration_ms,
+        )
 
         if response.status_code in {401, 403}:
             return {
@@ -100,6 +124,7 @@ class ChutesClient:
 
         audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
         endpoint = self._resolve_endpoint(self.api_url)
+        start_time = perf_counter()
 
         try:
             async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
@@ -112,17 +137,39 @@ class ChutesClient:
                     },
                 )
         except httpx.TimeoutException as exc:
+            duration_ms = (perf_counter() - start_time) * 1000
+            logger.warning(
+                "upstream.transcribe.timeout endpoint=%s audio_bytes=%s duration_ms=%.2f",
+                endpoint,
+                len(audio_bytes),
+                duration_ms,
+            )
             raise APIError(
                 code="CHUTES_TIMEOUT",
                 message="Transcription provider timed out.",
                 status_code=504,
             ) from exc
         except httpx.HTTPError as exc:
+            duration_ms = (perf_counter() - start_time) * 1000
+            logger.warning(
+                "upstream.transcribe.connection_error endpoint=%s audio_bytes=%s duration_ms=%.2f",
+                endpoint,
+                len(audio_bytes),
+                duration_ms,
+            )
             raise APIError(
                 code="CHUTES_CONNECTION_ERROR",
                 message="Unable to reach transcription provider.",
                 status_code=502,
             ) from exc
+        duration_ms = (perf_counter() - start_time) * 1000
+        logger.info(
+            "upstream.transcribe.completed endpoint=%s status_code=%s audio_bytes=%s duration_ms=%.2f",
+            endpoint,
+            response.status_code,
+            len(audio_bytes),
+            duration_ms,
+        )
 
         if response.status_code >= 400:
             raise APIError(
