@@ -29,6 +29,7 @@ export interface Chunk {
 
 export interface TranscriptionSummary {
   id: string;
+  title: string;
   filename: string;
   source: TranscriptionSource;
   language: string;
@@ -65,6 +66,12 @@ export interface UploadAudioInput {
   file: File;
   source?: TranscriptionSource;
   language?: string;
+}
+
+export interface UpdateTranscriptionInput {
+  id: string;
+  title?: string;
+  text?: string;
 }
 
 export interface ListTranscriptionsInput {

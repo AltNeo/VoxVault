@@ -11,6 +11,7 @@ def test_upload_list_get_and_audio_flow(client, wav_bytes: bytes) -> None:
     assert transcription_id
     assert uploaded["source"] == "upload"
     assert uploaded["language"] == "en"
+    assert uploaded["title"] == "sample"
     assert uploaded["audio_url"] == f"/api/audio/{transcription_id}"
     assert "Mock transcription" in uploaded["text"]
     assert isinstance(uploaded["chunks"], list)
@@ -21,11 +22,13 @@ def test_upload_list_get_and_audio_flow(client, wav_bytes: bytes) -> None:
     assert listed["total"] == 1
     assert len(listed["items"]) == 1
     assert listed["items"][0]["id"] == transcription_id
+    assert listed["items"][0]["title"] == "sample"
 
     detail_response = client.get(f"/api/transcriptions/{transcription_id}")
     assert detail_response.status_code == 200
     detail = detail_response.json()
     assert detail["id"] == transcription_id
+    assert detail["title"] == "sample"
     assert detail["filename"] == "sample.wav"
     assert isinstance(detail["chunks"], list)
 
@@ -34,3 +37,11 @@ def test_upload_list_get_and_audio_flow(client, wav_bytes: bytes) -> None:
     assert audio_response.content == wav_bytes
     assert audio_response.headers["content-type"].startswith("audio/")
 
+    update_response = client.patch(
+        f"/api/transcriptions/{transcription_id}",
+        json={"title": "team standup", "text": "updated text"},
+    )
+    assert update_response.status_code == 200
+    updated = update_response.json()
+    assert updated["title"] == "team standup"
+    assert updated["text"] == "updated text"

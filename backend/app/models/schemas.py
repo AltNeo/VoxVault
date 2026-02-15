@@ -48,6 +48,7 @@ class Chunk(BaseModel):
 
 class TranscriptionSummary(BaseModel):
     id: str
+    title: str
     filename: str
     source: Literal["recording", "upload"]
     language: str
@@ -78,3 +79,8 @@ class ErrorDetail(BaseModel):
 class ErrorResponse(BaseModel):
     error: ErrorDetail
     request_id: str
+
+
+class TranscriptionUpdateRequest(BaseModel):
+    title: str | None = None
+    text: str | None = None

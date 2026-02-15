@@ -12,8 +12,10 @@ interface UseTranscriptionResult {
   activeTranscription: Transcription | null;
   isLoading: boolean;
   isHistoryLoading: boolean;
+  isSavingEdits: boolean;
   error: string | null;
   uploadAudio: (file: File, source: TranscriptionSource) => Promise<Transcription>;
+  saveTranscriptionEdits: (id: string, title: string, text: string) => Promise<Transcription>;
   loadHistory: (input?: ListTranscriptionsInput) => Promise<void>;
   selectTranscription: (id: string) => Promise<void>;
   clearActive: () => void;
@@ -32,6 +34,7 @@ export function useTranscription(): UseTranscriptionResult {
   const [activeTranscription, setActiveTranscription] = useState<Transcription | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isHistoryLoading, setIsHistoryLoading] = useState(false);
+  const [isSavingEdits, setIsSavingEdits] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const loadHistory = useCallback(async (input?: ListTranscriptionsInput) => {
@@ -91,6 +94,25 @@ export function useTranscription(): UseTranscriptionResult {
     }
   }, []);
 
+  const saveTranscriptionEdits = useCallback(async (id: string, title: string, text: string) => {
+    setIsSavingEdits(true);
+    setError(null);
+
+    try {
+      const transcription = await api.updateTranscription({ id, title, text });
+      setActiveTranscription(transcription);
+      setHistory((current) => mergeHistory(current, transcription));
+      return transcription;
+    } catch (saveError) {
+      const message =
+        saveError instanceof Error ? saveError.message : 'Failed to save transcription edits.';
+      setError(message);
+      throw saveError;
+    } finally {
+      setIsSavingEdits(false);
+    }
+  }, []);
+
   const clearActive = useCallback(() => {
     setActiveTranscription(null);
     setError(null);
@@ -101,8 +123,10 @@ export function useTranscription(): UseTranscriptionResult {
     activeTranscription,
     isLoading,
     isHistoryLoading,
+    isSavingEdits,
     error,
     uploadAudio,
+    saveTranscriptionEdits,
     loadHistory,
     selectTranscription,
     clearActive,

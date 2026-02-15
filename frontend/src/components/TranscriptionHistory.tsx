@@ -39,9 +39,9 @@ export default function TranscriptionHistory({
               type="button"
               onClick={() => onSelect(item.id)}
             >
-              <span className="history-item__file">{item.filename}</span>
+              <span className="history-item__title">{item.title}</span>
               <span className="history-item__meta">
-                {item.source} | {item.status} | {formatDate(item.created_at)}
+                {item.filename} | {item.source} | {item.status} | {formatDate(item.created_at)}
               </span>
             </button>
           </li>

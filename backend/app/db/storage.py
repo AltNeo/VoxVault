@@ -16,6 +16,7 @@ class TranscriptionStorage:
                 """
                 CREATE TABLE IF NOT EXISTS transcriptions (
                     id TEXT PRIMARY KEY,
+                    title TEXT NOT NULL,
                     filename TEXT NOT NULL,
                     source TEXT NOT NULL,
                     language TEXT NOT NULL,
@@ -28,6 +29,15 @@ class TranscriptionStorage:
                 )
                 """
             )
+            transcription_columns = {
+                row[1]
+                for row in conn.execute("PRAGMA table_info(transcriptions)").fetchall()
+            }
+            if "title" not in transcription_columns:
+                conn.execute(
+                    "ALTER TABLE transcriptions ADD COLUMN title TEXT NOT NULL DEFAULT ''"
+                )
+                conn.execute("UPDATE transcriptions SET title = filename WHERE title = ''")
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS transcription_metrics (
@@ -47,12 +57,13 @@ class TranscriptionStorage:
             conn.execute(
                 """
                 INSERT INTO transcriptions (
-                    id, filename, source, language, duration_seconds, status, text,
+                    id, title, filename, source, language, duration_seconds, status, text,
                     chunks_json, created_at, audio_path
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     payload["id"],
+                    payload["title"],
                     payload["filename"],
                     payload["source"],
                     payload["language"],
@@ -65,6 +76,36 @@ class TranscriptionStorage:
                 ),
             )
             conn.commit()
+
+    def update_transcription(
+        self,
+        transcription_id: str,
+        *,
+        title: str | None = None,
+        text: str | None = None,
+    ) -> bool:
+        updates: list[str] = []
+        values: list[str] = []
+
+        if title is not None:
+            updates.append("title = ?")
+            values.append(title)
+        if text is not None:
+            updates.append("text = ?")
+            values.append(text)
+
+        if not updates:
+            return False
+
+        values.append(transcription_id)
+
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute(
+                f"UPDATE transcriptions SET {', '.join(updates)} WHERE id = ?",
+                tuple(values),
+            )
+            conn.commit()
+            return cursor.rowcount > 0
 
     def get_transcription(self, transcription_id: str) -> dict[str, Any] | None:
         with sqlite3.connect(self.db_path) as conn:
@@ -171,4 +212,5 @@ class TranscriptionStorage:
     @staticmethod
     def _deserialize(row: dict[str, Any]) -> dict[str, Any]:
         row["chunks"] = json.loads(row.pop("chunks_json", "[]"))
+        row["title"] = str(row.get("title", "")).strip() or row.get("filename", "")
         return row

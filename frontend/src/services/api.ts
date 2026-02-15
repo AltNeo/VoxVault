@@ -7,6 +7,7 @@ import type {
   TranscriptionListResponse,
   TranscriptionSummary,
   UploadAudioInput,
+  UpdateTranscriptionInput,
 } from '../types/api';
 
 const MOCK_STORAGE_KEY = 'mock_transcriptions_v1';
@@ -26,6 +27,7 @@ export interface ApiClient {
   health(): Promise<HealthResponse>;
   providerHealth(): Promise<ProviderHealthResponse>;
   uploadAudio(input: UploadAudioInput): Promise<Transcription>;
+  updateTranscription(input: UpdateTranscriptionInput): Promise<Transcription>;
   listTranscriptions(input?: ListTranscriptionsInput): Promise<TranscriptionListResponse>;
   getTranscription(id: string): Promise<Transcription>;
   getAudioUrl(id: string): string;
@@ -201,6 +203,7 @@ function createMockClient(storage: StorageLike): ApiClient {
 
       const transcription: Transcription = {
         id,
+        title: input.file.name.replace(/\.[^/.]+$/, '').trim() || input.file.name,
         filename: input.file.name,
         source: input.source ?? 'upload',
         language: input.language ?? 'en',
@@ -215,6 +218,27 @@ function createMockClient(storage: StorageLike): ApiClient {
       items = [transcription, ...items];
       saveStore(storage, items);
       return transcription;
+    },
+
+    async updateTranscription(input) {
+      await delay(DEFAULT_DELAY_MS);
+      const index = items.findIndex((item) => item.id === input.id);
+      if (index < 0) {
+        throw new ApiError('Transcription not found', 404, {
+          error: { code: 'not_found', message: 'Transcription not found' },
+          request_id: 'mock',
+        });
+      }
+
+      const current = items[index];
+      const updated: Transcription = {
+        ...current,
+        title: input.title ?? current.title,
+        text: input.text ?? current.text,
+      };
+      items = [updated, ...items.filter((item) => item.id !== input.id)];
+      saveStore(storage, items);
+      return updated;
     },
 
     async listTranscriptions(input = {}) {
@@ -287,6 +311,27 @@ function createHttpClient(baseUrl: string, fetchImpl: FetchImpl): ApiClient {
         method: 'POST',
         body: formData,
       });
+      return normalizeTranscription(baseUrl, result);
+    },
+
+    async updateTranscription(input) {
+      const body: Record<string, string> = {};
+      if (typeof input.title === 'string') {
+        body.title = input.title;
+      }
+      if (typeof input.text === 'string') {
+        body.text = input.text;
+      }
+
+      const result = await requestJson<Transcription>(
+        fetchImpl,
+        `${baseUrl}/api/transcriptions/${encodeURIComponent(input.id)}`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        }
+      );
       return normalizeTranscription(baseUrl, result);
     },
 

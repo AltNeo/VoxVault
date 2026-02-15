@@ -30,8 +30,10 @@ export default function Home() {
     activeTranscription,
     isLoading,
     isHistoryLoading,
+    isSavingEdits,
     error,
     uploadAudio,
+    saveTranscriptionEdits,
     loadHistory,
     selectTranscription,
   } = useTranscription();
@@ -133,7 +135,14 @@ export default function Home() {
           </button>
         </div>
 
-        <TranscriptionView transcription={activeTranscription} isLoading={isLoading} />
+        <TranscriptionView
+          transcription={activeTranscription}
+          isLoading={isLoading}
+          isSaving={isSavingEdits}
+          onSave={async (id, title, text) => {
+            await saveTranscriptionEdits(id, title, text);
+          }}
+        />
       </section>
 
       <TranscriptionHistory

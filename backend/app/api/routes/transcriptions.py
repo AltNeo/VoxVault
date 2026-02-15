@@ -15,6 +15,7 @@ from app.models.schemas import (
     Transcription,
     TranscriptionDiagnosticsResponse,
     TranscriptionListResponse,
+    TranscriptionUpdateRequest,
 )
 
 router = APIRouter()
@@ -97,6 +98,7 @@ async def upload_audio(
 
     record = {
         "id": stored_audio.transcription_id,
+        "title": _default_title_from_filename(stored_audio.filename),
         "filename": stored_audio.filename,
         "source": source,
         "language": normalized_language,
@@ -150,6 +152,58 @@ async def get_transcription(
     return _to_transcription_payload(row, services.settings.api_prefix)
 
 
+@router.patch("/transcriptions/{transcription_id}", response_model=Transcription)
+async def update_transcription(
+    transcription_id: str,
+    update: TranscriptionUpdateRequest,
+    services: AppServices = SERVICES_DEP,
+) -> dict[str, Any]:
+    if update.title is None and update.text is None:
+        raise APIError(
+            code="EMPTY_UPDATE",
+            message="Provide at least one field to update.",
+            status_code=400,
+        )
+
+    normalized_title = update.title.strip() if update.title is not None else None
+    normalized_text = update.text.strip() if update.text is not None else None
+
+    if update.title is not None and not normalized_title:
+        raise APIError(
+            code="INVALID_TITLE",
+            message="Title must not be empty.",
+            status_code=422,
+        )
+
+    if update.text is not None and not normalized_text:
+        raise APIError(
+            code="INVALID_TEXT",
+            message="Transcription text must not be empty.",
+            status_code=422,
+        )
+
+    updated = services.storage.update_transcription(
+        transcription_id,
+        title=normalized_title,
+        text=normalized_text,
+    )
+    if not updated:
+        raise APIError(
+            code="NOT_FOUND",
+            message="Transcription not found.",
+            status_code=404,
+        )
+
+    row = services.storage.get_transcription(transcription_id)
+    if row is None:
+        raise APIError(
+            code="STORAGE_ERROR",
+            message="Updated transcription could not be retrieved.",
+            status_code=500,
+        )
+    return _to_transcription_payload(row, services.settings.api_prefix)
+
+
 @router.get("/audio/{transcription_id}")
 async def get_audio(
     transcription_id: str,
@@ -182,6 +236,7 @@ async def get_audio(
 def _to_summary_payload(row: dict[str, Any], api_prefix: str) -> dict[str, Any]:
     return {
         "id": row["id"],
+        "title": row.get("title") or _default_title_from_filename(row["filename"]),
         "filename": row["filename"],
         "source": row["source"],
         "language": row["language"],
@@ -197,3 +252,8 @@ def _to_transcription_payload(row: dict[str, Any], api_prefix: str) -> dict[str,
     payload = _to_summary_payload(row, api_prefix)
     payload["chunks"] = row.get("chunks", [])
     return payload
+
+
+def _default_title_from_filename(filename: str) -> str:
+    stem = Path(filename).stem.strip()
+    return stem or filename

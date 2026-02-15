@@ -114,4 +114,22 @@ describe('api client', () => {
 
     await expect(client.health()).rejects.toBeInstanceOf(ApiError);
   });
+
+  it('updates transcription in mock mode', async () => {
+    const client = createApiClient({
+      useMockApi: true,
+      storage: createMemoryStorage(),
+    });
+
+    const file = new File(['mock audio'], 'meeting.webm', { type: 'audio/webm' });
+    const created = await client.uploadAudio({ file, source: 'upload', language: 'en' });
+    const updated = await client.updateTranscription({
+      id: created.id,
+      title: 'team sync',
+      text: 'edited transcript',
+    });
+
+    expect(updated.title).toBe('team sync');
+    expect(updated.text).toBe('edited transcript');
+  });
 });

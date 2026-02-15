@@ -344,6 +344,40 @@ body::before {
   max-height: 380px;
 }
 
+.transcription-body--editable {
+  width: 100%;
+  resize: vertical;
+  font: inherit;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.transcription-actions {
+  margin-top: 0.85rem;
+}
+
+.field-block {
+  margin-top: 0.8rem;
+  display: grid;
+  gap: 0.4rem;
+}
+
+.field-block__label {
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.field-input {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 0.55rem 0.65rem;
+  color: var(--text-main);
+  background: rgba(255, 255, 255, 0.04);
+  font: inherit;
+}
+
 .history-list {
   list-style: none;
   margin: 0.8rem 0 0;
@@ -376,7 +410,7 @@ body::before {
   background: rgba(255, 122, 89, 0.14);
 }
 
-.history-item__file {
+.history-item__title {
   display: block;
   font-weight: 700;
   margin-bottom: 0.12rem;
