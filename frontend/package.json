@@ -2,13 +2,19 @@
   "name": "audio-transcription-frontend",
   "private": true,
   "version": "0.1.0",
+  "main": "dist-electron/main.js",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc --noEmit && vite build",
+    "dev": "concurrently -k \"npm:dev:renderer\" \"npm:dev:electron\"",
+    "dev:renderer": "vite --strictPort --port 5173",
+    "dev:electron": "concurrently -k \"npm:dev:electron:build\" \"npm:dev:electron:start\"",
+    "dev:electron:build": "tsc -p tsconfig.electron.json --watch",
+    "dev:electron:start": "wait-on tcp:5173 file:dist-electron/main.js && cross-env VITE_DEV_SERVER_URL=http://127.0.0.1:5173 electron .",
+    "build": "tsc --noEmit && vite build && tsc -p tsconfig.electron.json",
     "preview": "vite preview",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "package": "npm run build && electron-builder"
   },
   "dependencies": {
     "react": "^18.3.1",
@@ -16,12 +22,35 @@
   },
   "devDependencies": {
     "@testing-library/jest-dom": "^6.6.3",
+    "@types/node": "^22.10.2",
     "@types/react": "^18.3.18",
     "@types/react-dom": "^18.3.5",
     "@vitejs/plugin-react": "^4.3.4",
+    "concurrently": "^9.1.2",
+    "cross-env": "^7.0.3",
+    "electron": "^34.0.0",
+    "electron-builder": "^25.1.8",
     "jsdom": "^26.0.0",
     "typescript": "^5.7.3",
     "vite": "^6.0.5",
-    "vitest": "^2.1.8"
+    "vitest": "^2.1.8",
+    "wait-on": "^8.0.1"
+  },
+  "build": {
+    "appId": "com.audio.transcription.desktop",
+    "productName": "Audio Transcription",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "dist-electron/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        "nsis"
+      ]
+    }
   }
 }

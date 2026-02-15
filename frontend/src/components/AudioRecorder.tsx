@@ -21,6 +21,7 @@ export default function AudioRecorder({ disabled = false, onRecorded }: AudioRec
     durationSeconds,
     isSupported,
     supportsSystemAudio,
+    systemAudioBackend,
     error,
     setCaptureMode,
     startRecording,
@@ -48,7 +49,7 @@ export default function AudioRecorder({ disabled = false, onRecorded }: AudioRec
       </div>
 
       <p className="muted">
-        Capture a fresh clip directly in your browser. Output is generated as WebM/Opus.
+        Capture a fresh clip directly in your app. Output is generated as WebM/Opus.
       </p>
 
       <div className="capture-mode-row">
@@ -75,11 +76,18 @@ export default function AudioRecorder({ disabled = false, onRecorded }: AudioRec
       </div>
       {captureMode === 'microphone_system' && (
         <p className="muted muted--hint">
-          Share your screen/tab with audio enabled so call participants are captured too.
+          {systemAudioBackend === 'electron'
+            ? 'Electron desktop capture is active for system audio.'
+            : 'Share your screen/tab with audio enabled so call participants are captured too.'}
+        </p>
+      )}
+      {supportsSystemAudio && (
+        <p className="muted muted--hint capture-backend">
+          System audio backend: {systemAudioBackend === 'electron' ? 'electron bridge' : 'browser'}
         </p>
       )}
       {!supportsSystemAudio && (
-        <p className="error-text">System audio capture is unavailable in this browser.</p>
+        <p className="error-text">System audio capture is unavailable in this environment.</p>
       )}
 
       <div className="recorder-display">

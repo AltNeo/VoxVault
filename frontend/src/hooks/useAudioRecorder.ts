@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useSystemAudio } from './useSystemAudio';
 
 export type RecordingStatus = 'idle' | 'recording' | 'stopped';
 export type CaptureMode = 'microphone' | 'microphone_system';
@@ -11,6 +12,7 @@ interface UseAudioRecorderResult {
   durationSeconds: number;
   isSupported: boolean;
   supportsSystemAudio: boolean;
+  systemAudioBackend: 'electron' | 'browser' | 'unsupported';
   error: string | null;
   setCaptureMode: (mode: CaptureMode) => void;
   startRecording: () => Promise<void>;
@@ -34,12 +36,10 @@ export function useAudioRecorder(): UseAudioRecorderResult {
   const audioContextRef = useRef<AudioContext | null>(null);
   const timerRef = useRef<number | null>(null);
   const chunksRef = useRef<Blob[]>([]);
+  const { supportsSystemAudio, systemAudioBackend, getSystemAudioStream } = useSystemAudio();
 
   const isSupported = useMemo(() => {
     return typeof window !== 'undefined' && 'MediaRecorder' in window;
-  }, []);
-  const supportsSystemAudio = useMemo(() => {
-    return typeof navigator !== 'undefined' && !!navigator.mediaDevices?.getDisplayMedia;
   }, []);
 
   const clearTimer = useCallback(() => {
@@ -107,19 +107,16 @@ export function useAudioRecorder(): UseAudioRecorderResult {
       let recordingStream = micStream;
       if (captureMode === 'microphone_system') {
         if (!supportsSystemAudio) {
-          throw new Error('System audio capture is not supported in this browser.');
+          throw new Error('System audio capture is not supported in this environment.');
         }
 
-        const displayStream = await navigator.mediaDevices.getDisplayMedia({
-          audio: true,
-          video: true,
-        });
-        systemStreamRef.current = displayStream;
+        const systemAudioStream = await getSystemAudioStream();
+        systemStreamRef.current = systemAudioStream;
 
-        const systemAudioTracks = displayStream.getAudioTracks();
-        displayStream.getVideoTracks().forEach((track) => track.stop());
+        const systemAudioTracks = systemAudioStream.getAudioTracks();
+        systemAudioStream.getVideoTracks().forEach((track) => track.stop());
         if (systemAudioTracks.length === 0) {
-          throw new Error('No system audio track was shared. Enable Share audio and try again.');
+          throw new Error('No system audio track found for selected source.');
         }
 
         const audioContext = new AudioContext();
@@ -129,8 +126,8 @@ export function useAudioRecorder(): UseAudioRecorderResult {
         const micSource = audioContext.createMediaStreamSource(micStream);
         micSource.connect(destination);
 
-        const systemAudioStream = new MediaStream(systemAudioTracks);
-        const systemSource = audioContext.createMediaStreamSource(systemAudioStream);
+        const systemAudioOnlyStream = new MediaStream(systemAudioTracks);
+        const systemSource = audioContext.createMediaStreamSource(systemAudioOnlyStream);
         systemSource.connect(destination);
 
         const mixedStream = destination.stream;
@@ -172,7 +169,9 @@ export function useAudioRecorder(): UseAudioRecorderResult {
         startError instanceof Error && startError.message
           ? startError.message
           : captureMode === 'microphone_system'
-            ? 'Could not access microphone + system audio. Allow mic and screen-share audio.'
+            ? systemAudioBackend === 'electron'
+              ? 'Could not access microphone + system audio from Electron. Check app permissions.'
+              : 'Could not access microphone + system audio. Allow mic and screen-share audio.'
             : 'Microphone permission denied or unavailable.';
       setError(message);
       setStatus('idle');
@@ -183,10 +182,12 @@ export function useAudioRecorder(): UseAudioRecorderResult {
     audioUrl,
     captureMode,
     clearTimer,
+    getSystemAudioStream,
     isSupported,
     status,
     stopStream,
     supportsSystemAudio,
+    systemAudioBackend,
   ]);
 
   const stopRecording = useCallback(() => {
@@ -213,6 +214,7 @@ export function useAudioRecorder(): UseAudioRecorderResult {
     durationSeconds,
     isSupported,
     supportsSystemAudio,
+    systemAudioBackend,
     error,
     setCaptureMode,
     startRecording,
