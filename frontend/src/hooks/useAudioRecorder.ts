@@ -22,7 +22,7 @@ interface UseAudioRecorderResult {
 
 export function useAudioRecorder(): UseAudioRecorderResult {
   const [status, setStatus] = useState<RecordingStatus>('idle');
-  const [captureMode, setCaptureMode] = useState<CaptureMode>('microphone');
+  const [captureMode, setCaptureMode] = useState<CaptureMode>('microphone_system');
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [durationSeconds, setDurationSeconds] = useState(0);
@@ -195,6 +195,12 @@ export function useAudioRecorder(): UseAudioRecorderResult {
       recorderRef.current.stop();
     }
   }, []);
+
+  useEffect(() => {
+    if (!supportsSystemAudio && captureMode === 'microphone_system') {
+      setCaptureMode('microphone');
+    }
+  }, [captureMode, supportsSystemAudio]);
 
   useEffect(() => {
     return () => {

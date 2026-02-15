@@ -1,0 +1,25 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <radialGradient id="glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#8b5cf6" stop-opacity="0.6"/>
+      <stop offset="100%" stop-color="#8b5cf6" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="512" height="512" rx="120" fill="#000000"/>
+
+  <!-- Glow -->
+  <circle cx="256" cy="256" r="160" fill="url(#glow)"/>
+
+  <!-- Vault Ring -->
+  <circle cx="256" cy="256" r="120"
+          stroke="#8b5cf6"
+          stroke-width="12"
+          fill="none"/>
+
+  <!-- Waveform -->
+  <rect x="220" y="240" width="16" height="40" fill="#ffffff" rx="4"/>
+  <rect x="248" y="220" width="16" height="80" fill="#ffffff" rx="4"/>
+  <rect x="276" y="235" width="16" height="50" fill="#ffffff" rx="4"/>
+</svg>

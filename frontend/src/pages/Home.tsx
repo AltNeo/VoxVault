@@ -34,7 +34,7 @@ export default function Home() {
   } = useTranscription();
 
   const [pendingAudio, setPendingAudio] = useState<PendingAudio | null>(null);
-  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(true);
   const [inputMode, setInputMode] = useState<'record' | 'upload'>('record');
 
   useEffect(() => {
@@ -93,126 +93,129 @@ export default function Home() {
 
   return (
     <div className="void">
-      {/* Ambient background orbs */}
       <div className="void__orb void__orb--1" />
       <div className="void__orb void__orb--2" />
       <div className="void__orb void__orb--3" />
+      <div
+        className={`void__scrim ${historyOpen ? 'void__scrim--visible' : ''}`}
+        onClick={() => setHistoryOpen(false)}
+      />
 
-      {/* Floating brand mark */}
-      <header className="brand">
-        <span className="brand__mark">◇</span>
-        <span className="brand__name">VoxVault</span>
+      <header className="topbar">
+        <div className="brand">
+          <img src="/icon.svg" alt="VoxVault" className="brand__mark" />
+          <span className="brand__name">VoxVault</span>
+        </div>
         <ProviderStatusIndicator />
+        <button
+          type="button"
+          className={`history-toggle ${historyOpen ? 'history-toggle--active' : ''}`}
+          onClick={() => setHistoryOpen((current) => !current)}
+          aria-label="Toggle history panel"
+        >
+          <span className="history-toggle__icon">{historyOpen ? 'Close' : 'Open'}</span>
+          <span className="history-toggle__count">{history.length}</span>
+        </button>
       </header>
 
-      {/* History toggle */}
-      <button
-        type="button"
-        className={`history-toggle ${historyOpen ? 'history-toggle--active' : ''}`}
-        onClick={() => setHistoryOpen(!historyOpen)}
-        aria-label="Toggle history"
-      >
-        <span className="history-toggle__icon">☰</span>
-        <span className="history-toggle__count">{history.length}</span>
-      </button>
-
-      {/* Slide-out history panel */}
-      <aside className={`history-panel ${historyOpen ? 'history-panel--open' : ''}`}>
-        <div className="history-panel__header">
-          <h2>History</h2>
-          <button
-            type="button"
-            className="history-panel__close"
-            onClick={() => setHistoryOpen(false)}
-          >
-            ✕
-          </button>
-        </div>
-        <TranscriptionHistory
-          items={history}
-          activeId={activeTranscription?.id}
-          isLoading={isHistoryLoading}
-          onSelect={(id) => void handleSelectHistory(id)}
-        />
-      </aside>
-
-      {/* Main content */}
-      <main className="stage">
+      <main className={`workspace ${historyOpen ? 'workspace--history-open' : ''}`}>
         {error && <div className="toast toast--error">{error}</div>}
 
-        {/* Central transcription hero */}
-        <section className="transcript-hero">
-          <TranscriptionView
-            transcription={activeTranscription}
-            isLoading={isLoading}
-            isSaving={isSavingEdits}
-            onSave={async (id, title, text) => {
-              await saveTranscriptionEdits(id, title, text);
-            }}
-          />
-        </section>
+        <section className="workspace__controls">
+          <div className="module panel panel--controls">
+            <div className="panel__header">
+              <h2>Capture Input</h2>
+              <p>Choose one source to prepare audio for transcription.</p>
+            </div>
 
-        {/* Floating control dock */}
-        <div className="dock">
-          {/* Mode switcher */}
-          <div className="dock__modes">
-            <button
-              type="button"
-              className={`dock__mode ${inputMode === 'record' ? 'dock__mode--active' : ''}`}
-              onClick={() => setInputMode('record')}
-            >
-              ● Record
-            </button>
-            <button
-              type="button"
-              className={`dock__mode ${inputMode === 'upload' ? 'dock__mode--active' : ''}`}
-              onClick={() => setInputMode('upload')}
-            >
-              ↑ Upload
-            </button>
-          </div>
+            <div className="dock__modes">
+              <button
+                type="button"
+                className={`dock__mode ${inputMode === 'record' ? 'dock__mode--active' : ''}`}
+                onClick={() => setInputMode('record')}
+              >
+                Record
+              </button>
+              <button
+                type="button"
+                className={`dock__mode ${inputMode === 'upload' ? 'dock__mode--active' : ''}`}
+                onClick={() => setInputMode('upload')}
+              >
+                Upload
+              </button>
+            </div>
 
-          {/* Input panels */}
-          <div className="dock__panel">
-            {inputMode === 'record' ? (
-              <AudioRecorder disabled={isLoading} onRecorded={handleRecorded} />
-            ) : (
-              <FileUploader disabled={isLoading} onFileSelected={handleFilePicked} />
-            )}
-          </div>
-
-          {/* Audio preview bar */}
-          {playerSource && (
-            <div className="dock__preview">
-              <audio src={playerSource} controls />
-              {pendingAudio && (
-                <span className="dock__filename">
-                  {pendingAudio.file.name} ({formatBytes(pendingAudio.file.size)})
-                </span>
+            <div className="dock__panel">
+              {inputMode === 'record' ? (
+                <AudioRecorder disabled={isLoading} onRecorded={handleRecorded} />
+              ) : (
+                <FileUploader disabled={isLoading} onFileSelected={handleFilePicked} />
               )}
             </div>
-          )}
 
-          {/* Action button */}
-          <button
-            type="button"
-            className={`dock__action ${isLoading ? 'dock__action--loading' : ''}`}
-            disabled={isLoading || !pendingAudio}
-            onClick={() => void handleSubmit()}
-          >
-            {isLoading ? (
-              <>
-                <span className="spinner" />
-                <span>Processing...</span>
-              </>
-            ) : (
-              <>
-                <span className="dock__action-icon">▶</span>
-                <span>Transcribe</span>
-              </>
+            {playerSource && (
+              <div className="dock__preview">
+                <audio src={playerSource} controls />
+                {pendingAudio && (
+                  <span className="dock__filename">
+                    {pendingAudio.file.name} ({formatBytes(pendingAudio.file.size)})
+                  </span>
+                )}
+              </div>
             )}
-          </button>
-        </div>
+
+            <button
+              type="button"
+              className={`dock__action ${isLoading ? 'dock__action--loading' : ''}`}
+              disabled={isLoading || !pendingAudio}
+              onClick={() => void handleSubmit()}
+            >
+              {isLoading ? (
+                <>
+                  <span className="spinner" />
+                  <span>Processing...</span>
+                </>
+              ) : (
+                <>
+                  <span className="dock__action-icon">Start</span>
+                  <span>Transcribe</span>
+                </>
+              )}
+            </button>
+          </div>
+        </section>
+
+        <section className="workspace__transcript">
+          <div className="transcript-hero">
+            <TranscriptionView
+              transcription={activeTranscription}
+              isLoading={isLoading}
+              isSaving={isSavingEdits}
+              onSave={async (id, title, text) => {
+                await saveTranscriptionEdits(id, title, text);
+              }}
+            />
+          </div>
+        </section>
+
+        <aside className={`history-panel ${historyOpen ? 'history-panel--open' : ''}`}>
+          <div className="history-panel__header">
+            <h2>History</h2>
+            <button
+              type="button"
+              className="history-panel__close"
+              onClick={() => setHistoryOpen(false)}
+            >
+              Close
+            </button>
+          </div>
+          <TranscriptionHistory
+            items={history}
+            activeId={activeTranscription?.id}
+            isLoading={isHistoryLoading}
+            onSelect={(id) => void handleSelectHistory(id)}
+          />
+        </aside>
       </main>
     </div>
   );
