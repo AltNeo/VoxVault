@@ -12,6 +12,8 @@ ENV/
 # --- Web / Frontend ---
 node_modules/
 dist/
+dist-electron/
+release/
 build/
 .DS_Store
 *.log

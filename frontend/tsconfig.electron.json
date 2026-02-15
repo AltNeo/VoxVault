@@ -10,5 +10,5 @@
     "sourceMap": true,
     "types": ["node", "electron"]
   },
-  "include": ["electron/**/*.ts"]
+  "include": ["electron/**/*.ts", "electron/**/*.cts"]
 }
