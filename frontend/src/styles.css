@@ -181,6 +181,11 @@ body::before {
   line-height: 1.45;
 }
 
+.muted--hint {
+  margin-top: 0.55rem;
+  font-size: 0.8rem;
+}
+
 .recorder-display {
   margin-top: 0.9rem;
   padding: 0.6rem 0.75rem;
@@ -203,6 +208,23 @@ body::before {
   gap: 0.55rem;
   flex-wrap: wrap;
   margin-top: 0.85rem;
+}
+
+.capture-mode-row {
+  margin-top: 0.8rem;
+  display: flex;
+  gap: 0.55rem;
+  flex-wrap: wrap;
+}
+
+.capture-mode-btn {
+  padding: 0.46rem 0.72rem;
+  font-size: 0.8rem;
+}
+
+.capture-mode-btn--active {
+  border-color: rgba(156, 232, 200, 0.7);
+  background: rgba(156, 232, 200, 0.15);
 }
 
 .btn {

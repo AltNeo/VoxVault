@@ -15,11 +15,14 @@ function formatDuration(totalSeconds: number): string {
 export default function AudioRecorder({ disabled = false, onRecorded }: AudioRecorderProps) {
   const {
     status,
+    captureMode,
     audioBlob,
     audioUrl,
     durationSeconds,
     isSupported,
+    supportsSystemAudio,
     error,
+    setCaptureMode,
     startRecording,
     stopRecording,
     resetRecording,
@@ -47,6 +50,37 @@ export default function AudioRecorder({ disabled = false, onRecorded }: AudioRec
       <p className="muted">
         Capture a fresh clip directly in your browser. Output is generated as WebM/Opus.
       </p>
+
+      <div className="capture-mode-row">
+        <button
+          className={`btn btn--ghost capture-mode-btn ${
+            captureMode === 'microphone' ? 'capture-mode-btn--active' : ''
+          }`}
+          type="button"
+          disabled={disabled || status === 'recording'}
+          onClick={() => setCaptureMode('microphone')}
+        >
+          Microphone only
+        </button>
+        <button
+          className={`btn btn--ghost capture-mode-btn ${
+            captureMode === 'microphone_system' ? 'capture-mode-btn--active' : ''
+          }`}
+          type="button"
+          disabled={disabled || status === 'recording' || !supportsSystemAudio}
+          onClick={() => setCaptureMode('microphone_system')}
+        >
+          Mic + system audio
+        </button>
+      </div>
+      {captureMode === 'microphone_system' && (
+        <p className="muted muted--hint">
+          Share your screen/tab with audio enabled so call participants are captured too.
+        </p>
+      )}
+      {!supportsSystemAudio && (
+        <p className="error-text">System audio capture is unavailable in this browser.</p>
+      )}
 
       <div className="recorder-display">
         <span className="recorder-display__label">REC</span>
