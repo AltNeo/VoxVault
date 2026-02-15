@@ -8,16 +8,28 @@ This repository is split by runtime:
 
 Store generated or persisted audio in `backend/backups/` (do not commit large media files).
 
-Create a git commit every time you feel that we have done a significant amount of work. You are responsible for writing the commit messages and it should be very clear. The industry standard is called Conventional Commits. It is a specification that adds a lightweight layer of structure to commit messages, making them machine-readable and easy for humans to scan.
+## Git Commit Standards (Conventional Commits)
 
-    The Conventional Commits Structure
-    The strict method follows this mandatory format:
+**Format:** `<type>(<scope>): <description>`  
+(Example: `feat(auth): add oauth2 login`)
 
-    <type>[optional scope]: <description>
+### 1. Allowed Types
+* **feat**: New feature for the user
+* **fix**: Bug fix for the user
+* **docs**: Documentation changes only
+* **style**: Formatting/Linting (no logic change)
+* **refactor**: Code change (neither fix nor feature)
+* **perf**: Performance improvement
+* **test**: Adding/correcting tests
+* **chore**: Build/config/dependency updates
 
-    [optional body]
-
-    [optional footer(s)]
+### 2. Strict Writing Rules
+* **Imperative Mood**: Use commands (e.g., `fix: resolve leak`, NOT `fixed` or `fixes`).
+* **Casing**: Type and description must be **lowercase**.
+* **Punctuation**: Never end the subject line with a period.
+* **Length**: Subject line $\le$ 50 chars; never exceed 72.
+* **Body**: Separate from subject with one blank line if "why/how" is required.
+* **Frequency**: **Atomic Commits**—commit at every logical checkpoint/single change.Commit to get now 
 
 ## Build, Test, and Development Commands
 Run commands from the relevant subfolder:
