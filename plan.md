@@ -1,32 +1,156 @@
-﻿# Plan: Multi-Stream Execution Model
+﻿# Plan: VoxVault — Electron Audio Transcription Application
 
-This plan enables independent frontend and backend delivery with explicit gates, ownership, and contract control.
+A desktop application (Electron + React) with Python/FastAPI backend that captures system audio and microphone, backs up recordings locally, transcribes via Chutes.ai Whisper, and displays results.
+
+## Architecture Overview
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                    ELECTRON APP (Desktop)                           │
+│  ┌───────────────────────────────────────────────────────────────┐ │
+│  │                 Renderer Process (React)                      │ │
+│  │  ┌──────────────┐  ┌──────────────┐  ┌─────────────────────┐ │ │
+│  │  │ System Audio │  │ File Upload  │  │ Transcription View  │ │ │
+│  │  │ Recorder     │  │ Component    │  │ + History           │ │ │
+│  │  └──────────────┘  └──────────────┘  └─────────────────────┘ │ │
+│  └───────────────────────────────────────────────────────────────┘ │
+│                          │ IPC                                      │
+│  ┌───────────────────────────────────────────────────────────────┐ │
+│  │                 Main Process (Node.js)                         │ │
+│  │  - desktopCapturer for system audio                           │ │
+│  │  - File system access for local backup                        │ │
+│  │  - IPC bridge to renderer                                     │ │
+│  └───────────────────────────────────────────────────────────────┘ │
+└─────────────────────────────────────────────────────────────────────┘
+                           │ HTTP (localhost:8000)
+┌─────────────────────────────────────────────────────────────────────┐
+│                    BACKEND (FastAPI)                                │
+│  ┌───────────────────────────────────────────────────────────────┐ │
+│  │ API Routes: /upload, /transcriptions, /audio/{id}, /health   │ │
+│  └───────────────────────────────────────────────────────────────┘ │
+│  ┌────────────────┐  ┌────────────────┐  ┌─────────────────────┐   │
+│  │ Audio Backup   │  │ Format Convert │  │ Chutes.ai Client    │   │
+│  │ (Local FS)     │  │ (FFmpeg)       │  │ (Whisper API)       │   │
+│  └────────────────┘  └────────────────┘  └─────────────────────┘   │
+│           │                                       │                 │
+│           ▼                                       ▼                 │
+│   ./backups/*.wav                    https://xxx.chutes.ai          │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+## Why Electron?
+
+Browser-based web apps cannot capture system audio (security sandbox). Since the use case requires recording Teams/Zoom meetings without a bot, Electron's `desktopCapturer` API enables:
+- **System audio capture** via screen share with audio (no admin required)
+- **Microphone capture** simultaneously
+- **Local file system access** for backups without user prompts
+- **Single integrated experience** — no browser tab required
 
 ## Streams and Ownership
 
 | Stream | Scope | Primary Owner | Secondary Owner |
 |---|---|---|---|
-| `S1-Backend` | FastAPI API, audio processing, storage, integrations | Backend Lead | Architect |
-| `S2-Frontend` | React UI, recording/upload UX, state management | Frontend Lead | Architect |
-| `S3-Integration` | Contract governance, end-to-end validation, release gate | Architect | QA Owner |
+| `S1-Backend` | FastAPI API, audio processing, storage, Chutes.ai integration | Backend Lead | Architect |
+| `S2-Electron` | Electron main/renderer, system audio capture, React UI, IPC | Frontend Lead | Architect |
+| `S3-Integration` | Contract governance, E2E validation, packaging, release gate | Architect | QA Owner |
 
-## Dependency Model
+## Frontend Structure (Electron + React)
 
-- `S1-Backend` and `S2-Frontend` run in parallel after Gate 1.
-- `S2-Frontend` may use mocks until API contract freeze at Gate 2.
-- No breaking API changes are allowed after Gate 2 without Architect approval and version bump.
-- `S3-Integration` begins hard integration after Gate 3 (both streams functionally complete).
+```
+frontend/
+├── electron/
+│   ├── main.ts                # Electron main process entry
+│   ├── preload.ts             # Secure IPC bridge (contextBridge)
+│   └── ipc-handlers.ts        # IPC channel handlers
+├── src/
+│   ├── components/
+│   │   ├── SystemAudioRecorder.tsx   # desktopCapturer integration
+│   │   ├── FileUploader.tsx          # Drag-drop + file picker
+│   │   ├── AudioPlayer.tsx           # Playback with waveform
+│   │   ├── TranscriptionView.tsx     # Display transcription text
+│   │   └── TranscriptionHistory.tsx  # List of past transcriptions
+│   ├── hooks/
+│   │   ├── useSystemAudio.ts         # IPC calls for audio capture
+│   │   └── useTranscription.ts       # Backend API calls
+│   ├── services/
+│   │   └── api.ts                    # HTTP client for FastAPI
+│   ├── pages/
+│   │   └── Home.tsx                  # Main page layout
+│   ├── App.tsx
+│   └── main.tsx
+├── package.json
+├── electron-builder.json             # Packaging config
+├── vite.config.ts
+└── tsconfig.json
+```
+
+## Backend Structure (FastAPI — Unchanged)
+
+```
+backend/
+├── app/
+│   ├── main.py                # FastAPI app entry
+│   ├── api/
+│   │   ├── routes/
+│   │   │   ├── transcription.py   # /transcribe, /transcriptions
+│   │   │   └── audio.py           # /upload, /audio/{id}
+│   │   └── deps.py
+│   ├── services/
+│   │   ├── chutes_client.py       # Chutes.ai Whisper API wrapper
+│   │   ├── audio_processor.py     # FFmpeg conversion
+│   │   └── backup_service.py      # Local file storage
+│   ├── models/
+│   │   └── schemas.py
+│   ├── core/
+│   │   ├── config.py
+│   │   └── exceptions.py
+│   └── db/
+│       └── storage.py             # SQLite metadata
+├── backups/
+├── requirements.txt
+└── .env
+```
+
+## System Audio Capture Flow
+
+```
+1. User clicks "Start Recording" in Electron app
+       │
+       ▼
+2. Renderer requests audio sources via IPC
+       │
+       ▼
+3. Main process calls desktopCapturer.getSources({ types: ['screen'] })
+       │
+       ▼
+4. Renderer gets stream via navigator.mediaDevices.getUserMedia({
+     audio: { mandatory: { chromeMediaSource: 'desktop' } },
+     video: { mandatory: { chromeMediaSource: 'desktop' } }
+   })
+       │
+       ▼
+5. Extract audio track, discard video track
+       │
+       ▼
+6. MediaRecorder captures audio chunks (WebM/Opus)
+       │
+       ▼
+7. On stop: Blob → File → POST to /api/upload
+       │
+       ▼
+8. Backend: backup → convert → transcribe → return
+```
 
 ## Phase Gates
 
 | Gate | Milestone | Required Outputs | Completion Criteria |
 |---|---|---|---|
-| `Gate 0` | Kickoff + Scope Lock | In-scope features, non-goals, owner assignments | Scope and owners documented; unresolved decisions are assigned |
-| `Gate 1` | Architecture Baseline | Architecture outline, risk log, test approach | Both streams have implementation backlogs and dependency map |
-| `Gate 2` | **API Contract Freeze** | OpenAPI spec, request/response schemas, error model, examples | Backend + Frontend + Architect sign-off; mocks/fixtures available; change control enabled |
-| `Gate 3` | Stream Complete | Independent stream feature completion reports | Backend API tests pass; Frontend UI/unit tests pass; no Sev-1 defects |
-| `Gate 4` | Integrated System Ready | Shared-environment integration and E2E report | Core flow passes: record/upload -> transcribe -> history retrieval |
-| `Gate 5` | Release Readiness | Release checklist, rollback plan, known issues | Health checks validated; docs updated; all stream owners sign off |
+| `Gate 0` | Kickoff + Scope Lock | In-scope features, non-goals, owner assignments | Scope frozen; risks logged |
+| `Gate 1` | Architecture Baseline | Architecture diagram, Electron scaffolding, test approach | Backlogs approved |
+| `Gate 2` | **API Contract Freeze** | OpenAPI spec, IPC channel definitions, error model | Backend + Electron sign-off |
+| `Gate 3` | Stream Complete | Independent stream feature completion | Tests pass; no blockers |
+| `Gate 4` | Integrated System Ready | E2E validation report | Core flow passes |
+| `Gate 5` | Release Readiness | Packaged installer, release checklist | All owners sign off |
 
 ## Phase Plan
 
@@ -36,47 +160,71 @@ This plan enables independent frontend and backend delivery with explicit gates,
   - Feature list and exclusions are frozen.
   - Risk register exists with owner per risk.
 
-### Phase 1: Architecture + Contract Draft (to Gate 1)
+### Phase 1: Architecture + Electron Setup (to Gate 1)
 - `S1-Backend`: define API/resource boundaries and processing architecture.
-- `S2-Frontend`: define view states and required data contract.
+- `S2-Electron`: scaffold Electron project with Vite + React; implement desktopCapturer proof-of-concept.
 - `S3-Integration`: publish stream dependency map and test strategy.
 - Completion criteria:
+  - Electron app launches and captures system audio.
   - Backlogs for both streams are approved.
-  - Cross-stream dependencies are explicit and scheduled.
 
-### Phase 2: Contract Freeze + Parallel Build Start (to Gate 2)
+### Phase 2: Contract Freeze + Parallel Build (to Gate 2)
 - `S1-Backend`: publish OpenAPI and typed schemas.
-- `S2-Frontend`: bind API layer to contract and generate mocks.
+- `S2-Electron`: define IPC channels; bind API layer to contract; generate mocks.
 - `S3-Integration`: enforce contract change policy.
 - Completion criteria:
   - API contract freeze signed.
-  - Frontend can continue independently on mocks.
+  - IPC channel contract documented.
 
 ### Phase 3: Independent Stream Delivery (to Gate 3)
 - `S1-Backend`: implement `/api/upload`, `/api/transcriptions`, `/api/audio/{id}`, `/api/health`; add tests.
-- `S2-Frontend`: implement recorder/upload, transcription view, history view, loading/error states; add tests.
+- `S2-Electron`: implement system audio recorder, file upload, transcription view, history; add tests.
 - `S3-Integration`: monitor readiness and defect triage.
 - Completion criteria:
   - Backend tests pass for critical API paths.
-  - Frontend tests pass against contract fixtures.
+  - Electron UI tests pass.
   - No blocker defects remain.
 
 ### Phase 4: Integration + Hardening (to Gate 4)
-- `S1-Backend` + `S2-Frontend`: integrate on shared environment and resolve defects.
-- `S3-Integration`: execute E2E happy path and key negative path checks.
+- `S1-Backend` + `S2-Electron`: integrate and resolve defects.
+- `S3-Integration`: execute E2E happy path and negative path checks.
 - Completion criteria:
-  - E2E flow is stable across target environments.
-  - Contract tests remain green after integration fixes.
+  - Core flow passes: record system audio → backup → transcribe → display.
+  - Contract tests remain green.
 
 ### Phase 5: Release Gate (to Gate 5)
 - `S3-Integration`: run final readiness review.
-- `S1-Backend`: validate deployment, rollback, and health behavior.
-- `S2-Frontend`: validate production build and runtime config.
+- `S1-Backend`: validate health endpoint and deployment.
+- `S2-Electron`: build Windows installer with electron-builder; test installation.
 - Completion criteria:
-  - Release checklist is complete.
-  - Runbook and implementation docs are current.
+  - Packaged `.exe` installer works on clean Windows system.
+  - Release checklist complete.
+
+## Key Electron Considerations
+
+### IPC Security (Context Isolation)
+- Use `contextBridge` in preload script to expose safe APIs.
+- Never expose `ipcRenderer` directly to renderer process.
+
+```typescript
+// preload.ts
+contextBridge.exposeInMainWorld('electronAPI', {
+  getAudioSources: () => ipcRenderer.invoke('get-audio-sources'),
+  saveRecording: (buffer: ArrayBuffer) => ipcRenderer.invoke('save-recording', buffer),
+});
+```
+
+### Packaging
+- Use `electron-builder` for Windows `.exe` installer.
+- Bundle backend Python as optional (user runs separately) or embed with PyInstaller.
+
+### Development Workflow
+- `npm run dev` — starts Vite dev server + Electron in dev mode
+- `npm run build` — builds React app
+- `npm run package` — creates distributable installer
 
 ## Working Rules
 
 - Contract-breaking changes after Gate 2 require rationale, approval from Architect + both stream leads, and versioned migration notes.
 - A phase closes only when its completion criteria are met; schedule date alone does not close a phase.
+- Electron IPC channels are part of the contract and require the same change control as API endpoints.

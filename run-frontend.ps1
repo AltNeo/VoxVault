@@ -4,6 +4,28 @@ param(
     [switch]$SkipBuild
 )
 
+<#
+.SYNOPSIS
+    Single-command workflow for the VoxVault Electron + React frontend.
+
+.DESCRIPTION
+    Installs dependencies, runs tests, builds, and starts the Electron app in development mode.
+    The Electron app uses desktopCapturer for system audio capture.
+
+.PARAMETER Install
+    Force npm install even if node_modules exists.
+
+.PARAMETER SkipTest
+    Skip running frontend tests.
+
+.PARAMETER SkipBuild
+    Skip the build step (useful for quick dev iterations).
+
+.EXAMPLE
+    ./run-frontend.ps1
+    ./run-frontend.ps1 -Install -SkipTest
+#>
+
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
@@ -27,11 +49,11 @@ try {
     }
 
     if (-not $SkipBuild) {
-        Write-Host "Running frontend build check..."
+        Write-Host "Building React app for Electron..."
         npm run build
     }
 
-    Write-Host "Starting frontend dev server..."
+    Write-Host "Starting Electron app in development mode..."
     npm run dev
 } finally {
     Pop-Location

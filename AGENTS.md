@@ -3,10 +3,15 @@
 ## Project Structure & Module Organization
 This repository is split by runtime:
 - `backend/`: Python/FastAPI service. Keep application code under `backend/app/` (for example: `api/routes/`, `services/`, `models/`, `core/`).
-- `frontend/`: React + TypeScript client. Keep UI and logic under `frontend/src/` (for example: `components/`, `hooks/`, `services/`, `pages/`).
+- `frontend/`: Electron + React + TypeScript desktop client.
+  - `frontend/electron/`: Electron main process code (`main.ts`, `preload.ts`, `ipc-handlers.ts`).
+  - `frontend/src/`: React renderer code (`components/`, `hooks/`, `services/`, `pages/`).
 - `plan.md`: implementation blueprint and architecture notes.
 
 Store generated or persisted audio in `backend/backups/` (do not commit large media files).
+
+## Why Electron?
+Browser-based web apps cannot capture system audio due to security sandboxing. Electron's `desktopCapturer` API enables system audio capture for recording Teams/Zoom meetings without a bot joining.
 
 ## Git Commit Standards (Conventional Commits)
 
@@ -33,14 +38,23 @@ Store generated or persisted audio in `backend/backups/` (do not commit large me
 
 ## Build, Test, and Development Commands
 Run commands from the relevant subfolder:
+
+**Backend:**
 - `cd backend && uvicorn app.main:app --reload --port 8000`: start API locally.
 - `cd backend && ruff check . && ruff format .`: lint and format Python.
 - `cd backend && pytest -q`: run backend tests.
+
+**Frontend (Electron + React):**
 - `cd frontend && npm install`: install frontend dependencies.
-- `cd frontend && npm run dev`: start Vite dev server (default `localhost:5173`).
-- `./run-frontend.ps1`: single-command frontend workflow from repo root (installs deps if needed, runs tests, runs build, then starts dev server). Optional flags: `-Install`, `-SkipTest`, `-SkipBuild`.
-- `cd frontend && npm run build`: create production frontend build.
+- `cd frontend && npm run dev`: start Vite dev server + Electron in development mode.
+- `cd frontend && npm run dev:renderer`: start only the Vite dev server (for UI development).
+- `cd frontend && npm run build`: build React app for production.
+- `cd frontend && npm run package`: create distributable Windows installer (.exe) with electron-builder.
+- `cd frontend && npm run test`: run frontend tests.
 - `cd frontend && npx prettier --write .`: format frontend code.
+
+**Full Stack (from repo root):**
+- `./run-frontend.ps1`: single-command Electron workflow (installs deps if needed, runs tests, runs build, then starts dev). Optional flags: `-Install`, `-SkipTest`, `-SkipBuild`.
 
 ## Coding Style & Naming Conventions
 Python (`backend/ruff.toml`):
@@ -52,6 +66,8 @@ Frontend (`frontend/.prettierrc`):
 - 2-space indentation, `singleQuote: true`, semicolons enabled, width `100`.
 - React components: `PascalCase` (for example `AudioRecorder.tsx`).
 - Hooks: `useXxx` naming (for example `useTranscription.ts`).
+- Electron main process files: `kebab-case` in `electron/` (for example `ipc-handlers.ts`).
+- IPC channels: `kebab-case` strings (for example `'get-audio-sources'`, `'save-recording'`).
 
 ## Testing Guidelines
 - Backend tests: `pytest`, place tests in `backend/tests/`, name files `test_*.py`.
