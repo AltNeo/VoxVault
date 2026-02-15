@@ -235,9 +235,16 @@ body::before {
 
 .btn--primary {
   border-color: rgba(156, 232, 200, 0.7);
-  background: rgba(156, 232, 200, 0.22);
-  color: #14291f;
-  font-weight: 700;
+  background: linear-gradient(135deg, rgba(156, 232, 200, 0.92), rgba(120, 205, 170, 0.92));
+  color: #06150f;
+  font-weight: 800;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.2);
+}
+
+.btn--primary:disabled {
+  opacity: 0.72;
+  color: #12281d;
+  border-color: rgba(156, 232, 200, 0.5);
 }
 
 .btn--ghost {
