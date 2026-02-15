@@ -13,6 +13,7 @@ from app.models.schemas import (
     HealthResponse,
     ProviderHealthResponse,
     Transcription,
+    TranscriptionDiagnosticsResponse,
     TranscriptionListResponse,
 )
 
@@ -33,6 +34,13 @@ async def health(services: AppServices = SERVICES_DEP) -> HealthResponse:
 @router.get("/health/provider", response_model=ProviderHealthResponse)
 async def provider_health(services: AppServices = SERVICES_DEP) -> dict[str, Any]:
     return await services.chutes_client.ping()
+
+
+@router.get(
+    "/health/provider/transcription-metrics", response_model=TranscriptionDiagnosticsResponse
+)
+async def provider_transcription_metrics(services: AppServices = SERVICES_DEP) -> dict[str, Any]:
+    return services.chutes_client.get_transcription_metrics()
 
 
 @router.post("/upload", response_model=Transcription, status_code=status.HTTP_201_CREATED)

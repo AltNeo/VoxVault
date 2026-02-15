@@ -16,3 +16,16 @@ def test_provider_health_not_configured(client) -> None:
     body = response.json()
     assert body["status"] == "not_configured"
     assert body["reachable"] is False
+
+
+def test_provider_transcription_metrics_initial_state(client) -> None:
+    response = client.get("/api/health/provider/transcription-metrics")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total_calls"] == 0
+    assert body["average_duration_ms"] == 0
+    assert body["average_audio_bytes"] == 0
+    assert body["average_audio_mb"] == 0
+    assert body["average_ms_per_mb"] == 0
+    assert body["recent_samples"] == []

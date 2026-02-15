@@ -23,6 +23,7 @@ from app.services.chutes_client import ChutesClient
 def create_app(settings: Settings | None = None) -> FastAPI:
     resolved_settings = settings or get_settings()
     transaction_logger = _configure_transaction_logger(resolved_settings.diagnostics_log_path)
+    storage = TranscriptionStorage(resolved_settings.sqlite_path)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -41,13 +42,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app.state.services = AppServices(
         settings=resolved_settings,
-        storage=TranscriptionStorage(resolved_settings.sqlite_path),
+        storage=storage,
         backup_service=BackupService(resolved_settings.backup_dir),
         audio_processor=AudioProcessor(),
         chutes_client=ChutesClient(
             api_url=resolved_settings.chutes_api_url,
             api_key=resolved_settings.chutes_api_key,
             timeout_seconds=resolved_settings.request_timeout_seconds,
+            storage=storage,
         ),
     )
 
@@ -170,9 +172,7 @@ def _configure_transaction_logger(log_path: Path) -> logging.Logger:
     if resolved_log_path not in existing_paths:
         file_handler = logging.FileHandler(resolved_log_path, encoding="utf-8")
         file_handler.setLevel(logging.INFO)
-        file_handler.setFormatter(
-            logging.Formatter("%(asctime)s | %(levelname)s | %(message)s")
-        )
+        file_handler.setFormatter(logging.Formatter("%(asctime)s | %(levelname)s | %(message)s"))
         logger.addHandler(file_handler)
 
     return logger

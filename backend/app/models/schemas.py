@@ -23,6 +23,23 @@ class ProviderHealthResponse(BaseModel):
     endpoint: str | None = None
 
 
+class TranscriptionMetricSample(BaseModel):
+    timestamp: datetime
+    audio_bytes: int = Field(ge=0)
+    duration_ms: float = Field(ge=0)
+    status: str
+    upstream_status_code: int | None = None
+
+
+class TranscriptionDiagnosticsResponse(BaseModel):
+    total_calls: int = Field(ge=0)
+    average_duration_ms: float = Field(ge=0)
+    average_audio_bytes: float = Field(ge=0)
+    average_audio_mb: float = Field(ge=0)
+    average_ms_per_mb: float = Field(ge=0)
+    recent_samples: list[TranscriptionMetricSample] = Field(default_factory=list)
+
+
 class Chunk(BaseModel):
     start: float = Field(ge=0)
     end: float = Field(ge=0)

@@ -1,5 +1,6 @@
 import json
 import sqlite3
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +25,18 @@ class TranscriptionStorage:
                     chunks_json TEXT NOT NULL,
                     created_at TEXT NOT NULL,
                     audio_path TEXT NOT NULL
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS transcription_metrics (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp TEXT NOT NULL,
+                    audio_bytes INTEGER NOT NULL,
+                    duration_ms REAL NOT NULL,
+                    status TEXT NOT NULL,
+                    upstream_status_code INTEGER
                 )
                 """
             )
@@ -83,6 +96,77 @@ class TranscriptionStorage:
         with sqlite3.connect(self.db_path) as conn:
             row = conn.execute("SELECT COUNT(*) FROM transcriptions").fetchone()
         return int(row[0]) if row else 0
+
+    def create_transcription_metric(
+        self,
+        *,
+        audio_bytes: int,
+        duration_ms: float,
+        status: str,
+        upstream_status_code: int | None,
+    ) -> None:
+        timestamp = datetime.now(timezone.utc).isoformat()
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(
+                """
+                INSERT INTO transcription_metrics (
+                    timestamp, audio_bytes, duration_ms, status, upstream_status_code
+                ) VALUES (?, ?, ?, ?, ?)
+                """,
+                (timestamp, audio_bytes, duration_ms, status, upstream_status_code),
+            )
+            conn.commit()
+
+    def get_transcription_metrics(self, *, recent_limit: int = 200) -> dict[str, Any]:
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+
+            aggregate_row = conn.execute(
+                """
+                SELECT
+                    COUNT(*) AS total_calls,
+                    COALESCE(AVG(duration_ms), 0) AS average_duration_ms,
+                    COALESCE(AVG(audio_bytes), 0) AS average_audio_bytes,
+                    COALESCE(SUM(duration_ms), 0) AS total_duration_ms,
+                    COALESCE(SUM(audio_bytes), 0) AS total_audio_bytes
+                FROM transcription_metrics
+                """
+            ).fetchone()
+
+            rows: list[sqlite3.Row] = []
+            if recent_limit > 0:
+                rows = conn.execute(
+                    """
+                    SELECT
+                        timestamp, audio_bytes, duration_ms, status, upstream_status_code
+                    FROM transcription_metrics
+                    ORDER BY id DESC
+                    LIMIT ?
+                    """,
+                    (recent_limit,),
+                ).fetchall()
+
+        total_calls = int(aggregate_row["total_calls"]) if aggregate_row else 0
+        average_duration_ms = float(aggregate_row["average_duration_ms"]) if aggregate_row else 0.0
+        average_audio_bytes = float(aggregate_row["average_audio_bytes"]) if aggregate_row else 0.0
+        total_duration_ms = float(aggregate_row["total_duration_ms"]) if aggregate_row else 0.0
+        total_audio_bytes = float(aggregate_row["total_audio_bytes"]) if aggregate_row else 0.0
+        average_audio_mb = average_audio_bytes / (1024 * 1024)
+        average_ms_per_mb = (
+            total_duration_ms / (total_audio_bytes / (1024 * 1024))
+            if total_audio_bytes > 0
+            else 0.0
+        )
+        recent_samples = [dict(row) for row in rows]
+
+        return {
+            "total_calls": total_calls,
+            "average_duration_ms": round(average_duration_ms, 2),
+            "average_audio_bytes": round(average_audio_bytes, 2),
+            "average_audio_mb": round(average_audio_mb, 2),
+            "average_ms_per_mb": round(average_ms_per_mb, 2),
+            "recent_samples": recent_samples,
+        }
 
     @staticmethod
     def _deserialize(row: dict[str, Any]) -> dict[str, Any]:
