@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import AudioPlayer from '../components/AudioPlayer';
 import AudioRecorder from '../components/AudioRecorder';
 import FileUploader from '../components/FileUploader';
 import ProviderStatusIndicator from '../components/ProviderStatusIndicator';
@@ -15,12 +14,8 @@ interface PendingAudio {
 }
 
 function formatBytes(value: number): string {
-  if (value < 1024) {
-    return `${value} B`;
-  }
-  if (value < 1024 * 1024) {
-    return `${(value / 1024).toFixed(1)} KB`;
-  }
+  if (value < 1024) return `${value} B`;
+  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
   return `${(value / (1024 * 1024)).toFixed(1)} MB`;
 }
 
@@ -39,6 +34,8 @@ export default function Home() {
   } = useTranscription();
 
   const [pendingAudio, setPendingAudio] = useState<PendingAudio | null>(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [inputMode, setInputMode] = useState<'record' | 'upload'>('record');
 
   useEffect(() => {
     void loadHistory();
@@ -76,81 +73,147 @@ export default function Home() {
   );
 
   const handleSubmit = useCallback(async () => {
-    if (!pendingAudio) {
-      return;
-    }
+    if (!pendingAudio) return;
     await uploadAudio(pendingAudio.file, pendingAudio.source);
   }, [pendingAudio, uploadAudio]);
 
   const handleSelectHistory = useCallback(
     async (id: string) => {
       await selectTranscription(id);
+      setHistoryOpen(false);
     },
     [selectTranscription]
   );
 
   const playerSource = useMemo(() => {
-    if (pendingAudio?.previewUrl) {
-      return pendingAudio.previewUrl;
-    }
-    if (activeTranscription?.audio_url) {
-      return activeTranscription.audio_url;
-    }
+    if (pendingAudio?.previewUrl) return pendingAudio.previewUrl;
+    if (activeTranscription?.audio_url) return activeTranscription.audio_url;
     return null;
   }, [activeTranscription?.audio_url, pendingAudio?.previewUrl]);
 
   return (
-    <main className="home">
-      <section className="hero">
-        <p className="hero__eyebrow">Audio to Text Studio</p>
-        <h1>Signal Forge</h1>
-        <p className="hero__lead">
-          Record voice, upload files, and keep a searchable archive of transcripts with one focused
-          workflow.
-        </p>
+    <div className="void">
+      {/* Ambient background orbs */}
+      <div className="void__orb void__orb--1" />
+      <div className="void__orb void__orb--2" />
+      <div className="void__orb void__orb--3" />
+
+      {/* Floating brand mark */}
+      <header className="brand">
+        <span className="brand__mark">◇</span>
+        <span className="brand__name">VoxVault</span>
         <ProviderStatusIndicator />
-      </section>
+      </header>
 
-      {error && <p className="global-error">{error}</p>}
+      {/* History toggle */}
+      <button
+        type="button"
+        className={`history-toggle ${historyOpen ? 'history-toggle--active' : ''}`}
+        onClick={() => setHistoryOpen(!historyOpen)}
+        aria-label="Toggle history"
+      >
+        <span className="history-toggle__icon">☰</span>
+        <span className="history-toggle__count">{history.length}</span>
+      </button>
 
-      <section className="workspace-grid">
-        <div className="stack">
-          <AudioRecorder disabled={isLoading} onRecorded={handleRecorded} />
-          <FileUploader disabled={isLoading} onFileSelected={handleFilePicked} />
-          <AudioPlayer
-            src={playerSource}
-            label={
-              pendingAudio
-                ? `Selected: ${pendingAudio.file.name} (${formatBytes(pendingAudio.file.size)})`
-                : 'Preview the selected clip or load from transcription history.'
-            }
-          />
+      {/* Slide-out history panel */}
+      <aside className={`history-panel ${historyOpen ? 'history-panel--open' : ''}`}>
+        <div className="history-panel__header">
+          <h2>History</h2>
           <button
             type="button"
-            className="btn btn--primary action-button"
+            className="history-panel__close"
+            onClick={() => setHistoryOpen(false)}
+          >
+            ✕
+          </button>
+        </div>
+        <TranscriptionHistory
+          items={history}
+          activeId={activeTranscription?.id}
+          isLoading={isHistoryLoading}
+          onSelect={(id) => void handleSelectHistory(id)}
+        />
+      </aside>
+
+      {/* Main content */}
+      <main className="stage">
+        {error && <div className="toast toast--error">{error}</div>}
+
+        {/* Central transcription hero */}
+        <section className="transcript-hero">
+          <TranscriptionView
+            transcription={activeTranscription}
+            isLoading={isLoading}
+            isSaving={isSavingEdits}
+            onSave={async (id, title, text) => {
+              await saveTranscriptionEdits(id, title, text);
+            }}
+          />
+        </section>
+
+        {/* Floating control dock */}
+        <div className="dock">
+          {/* Mode switcher */}
+          <div className="dock__modes">
+            <button
+              type="button"
+              className={`dock__mode ${inputMode === 'record' ? 'dock__mode--active' : ''}`}
+              onClick={() => setInputMode('record')}
+            >
+              ● Record
+            </button>
+            <button
+              type="button"
+              className={`dock__mode ${inputMode === 'upload' ? 'dock__mode--active' : ''}`}
+              onClick={() => setInputMode('upload')}
+            >
+              ↑ Upload
+            </button>
+          </div>
+
+          {/* Input panels */}
+          <div className="dock__panel">
+            {inputMode === 'record' ? (
+              <AudioRecorder disabled={isLoading} onRecorded={handleRecorded} />
+            ) : (
+              <FileUploader disabled={isLoading} onFileSelected={handleFilePicked} />
+            )}
+          </div>
+
+          {/* Audio preview bar */}
+          {playerSource && (
+            <div className="dock__preview">
+              <audio src={playerSource} controls />
+              {pendingAudio && (
+                <span className="dock__filename">
+                  {pendingAudio.file.name} ({formatBytes(pendingAudio.file.size)})
+                </span>
+              )}
+            </div>
+          )}
+
+          {/* Action button */}
+          <button
+            type="button"
+            className={`dock__action ${isLoading ? 'dock__action--loading' : ''}`}
             disabled={isLoading || !pendingAudio}
             onClick={() => void handleSubmit()}
           >
-            {isLoading ? 'Transcribing...' : 'Transcribe Selected Audio'}
+            {isLoading ? (
+              <>
+                <span className="spinner" />
+                <span>Processing...</span>
+              </>
+            ) : (
+              <>
+                <span className="dock__action-icon">▶</span>
+                <span>Transcribe</span>
+              </>
+            )}
           </button>
         </div>
-
-        <TranscriptionView
-          transcription={activeTranscription}
-          isLoading={isLoading}
-          isSaving={isSavingEdits}
-          onSave={async (id, title, text) => {
-            await saveTranscriptionEdits(id, title, text);
-          }}
-        />
-      </section>
-
-      <TranscriptionHistory
-        items={history}
-        activeId={activeTranscription?.id}
-        isLoading={isHistoryLoading}
-        onSelect={(id) => void handleSelectHistory(id)}
-      />
-    </main>
+      </main>
+    </div>
   );
 }
