@@ -1,4 +1,5 @@
 import mimetypes
+import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
@@ -17,6 +18,7 @@ from app.models.schemas import (
     TranscriptionListResponse,
     TranscriptionUpdateRequest,
 )
+from app.services.chutes_client import TranscriptionResult
 
 router = APIRouter()
 SERVICES_DEP = Depends(get_services)
@@ -65,18 +67,33 @@ async def upload_audio(
         allowed_extensions=services.settings.allowed_extensions,
     )
 
-    converted_path: Path | None = None
+    stored_filename = stored_audio.filename
+    stored_audio_path = stored_audio.path
     transcription_input = stored_audio.path
+    temporary_files: list[Path] = []
+    temporary_dirs: list[Path] = []
 
     try:
-        transcription_input = services.audio_processor.convert_for_transcription(stored_audio.path)
-        if transcription_input != stored_audio.path:
-            converted_path = transcription_input
+        if source == "recording":
+            recording_mp3_path = services.audio_processor.convert_to_mp3(stored_audio.path)
+            if recording_mp3_path != stored_audio.path:
+                stored_audio.path.unlink(missing_ok=True)
+            stored_audio_path = recording_mp3_path
+            transcription_input = recording_mp3_path
+            stored_filename = f"{Path(stored_audio.filename).stem}.mp3"
+        else:
+            transcription_input = services.audio_processor.convert_for_transcription(stored_audio.path)
+            if transcription_input != stored_audio.path:
+                temporary_files.append(transcription_input)
 
-        duration_seconds = services.audio_processor.get_duration_seconds(transcription_input)
-        transcription_result = await services.chutes_client.transcribe_audio(
-            transcription_input, normalized_language
+        duration_seconds = services.audio_processor.get_duration_seconds(stored_audio_path)
+        transcription_result, chunk_temp_dir = await _transcribe_with_chunking(
+            services=services,
+            audio_path=transcription_input,
+            language=normalized_language,
         )
+        if chunk_temp_dir is not None:
+            temporary_dirs.append(chunk_temp_dir)
     except APIError:
         raise
     except RuntimeError as exc:
@@ -93,13 +110,16 @@ async def upload_audio(
             details={"reason": str(exc)},
         ) from exc
     finally:
-        if converted_path is not None:
-            converted_path.unlink(missing_ok=True)
+        for temp_file in temporary_files:
+            temp_file.unlink(missing_ok=True)
+        for temp_dir in temporary_dirs:
+            if temp_dir.exists():
+                shutil.rmtree(temp_dir, ignore_errors=True)
 
     record = {
         "id": stored_audio.transcription_id,
-        "title": _default_title_from_filename(stored_audio.filename),
-        "filename": stored_audio.filename,
+        "title": _default_title_from_filename(stored_filename),
+        "filename": stored_filename,
         "source": source,
         "language": normalized_language,
         "duration_seconds": duration_seconds,
@@ -107,7 +127,7 @@ async def upload_audio(
         "text": transcription_result.text,
         "chunks": transcription_result.chunks,
         "created_at": datetime.now(timezone.utc).isoformat(),
-        "audio_path": str(stored_audio.path.resolve()),
+        "audio_path": str(stored_audio_path.resolve()),
     }
     services.storage.create_transcription(record)
 
@@ -257,3 +277,74 @@ def _to_transcription_payload(row: dict[str, Any], api_prefix: str) -> dict[str,
 def _default_title_from_filename(filename: str) -> str:
     stem = Path(filename).stem.strip()
     return stem or filename
+
+
+async def _transcribe_with_chunking(
+    *,
+    services: AppServices,
+    audio_path: Path,
+    language: str,
+) -> tuple[TranscriptionResult, Path | None]:
+    chunk_paths = services.audio_processor.split_for_max_size(
+        audio_path,
+        services.settings.max_transcription_chunk_mb,
+    )
+    if len(chunk_paths) == 1 and chunk_paths[0] == audio_path:
+        return await services.chutes_client.transcribe_audio(audio_path, language), None
+
+    merged_text_parts: list[str] = []
+    merged_chunks: list[dict[str, Any]] = []
+    chunk_offset_seconds = 0.0
+
+    for chunk_path in chunk_paths:
+        chunk_result = await services.chutes_client.transcribe_audio(chunk_path, language)
+        chunk_duration_seconds = services.audio_processor.get_duration_seconds(chunk_path) or 0.0
+
+        if chunk_result.text.strip():
+            merged_text_parts.append(chunk_result.text.strip())
+
+        normalized_chunk_entries = _offset_chunks(chunk_result.chunks, chunk_offset_seconds)
+        if normalized_chunk_entries:
+            merged_chunks.extend(normalized_chunk_entries)
+            if chunk_duration_seconds <= 0:
+                chunk_duration_seconds = max(
+                    (
+                        max(float(entry["end"]) - chunk_offset_seconds, 0.0)
+                        for entry in normalized_chunk_entries
+                    ),
+                    default=0.0,
+                )
+
+        chunk_offset_seconds += max(chunk_duration_seconds, 0.0)
+
+    merged_text = " ".join(merged_text_parts).strip()
+    if not merged_text and merged_chunks:
+        merged_text = " ".join(chunk["text"] for chunk in merged_chunks).strip()
+
+    return TranscriptionResult(text=merged_text, chunks=merged_chunks), chunk_paths[0].parent
+
+
+def _offset_chunks(chunks: list[dict[str, Any]], offset_seconds: float) -> list[dict[str, Any]]:
+    offset_chunks: list[dict[str, Any]] = []
+    for chunk in chunks:
+        text = str(chunk.get("text", "")).strip()
+        if not text:
+            continue
+
+        try:
+            start = float(chunk.get("start", 0.0))
+        except (TypeError, ValueError):
+            start = 0.0
+        try:
+            end = float(chunk.get("end", start))
+        except (TypeError, ValueError):
+            end = start
+
+        offset_chunks.append(
+            {
+                "start": round(start + offset_seconds, 2),
+                "end": round(end + offset_seconds, 2),
+                "text": text,
+            }
+        )
+    return offset_chunks

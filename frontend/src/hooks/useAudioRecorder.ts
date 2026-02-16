@@ -4,6 +4,24 @@ import { useSystemAudio } from './useSystemAudio';
 export type RecordingStatus = 'idle' | 'recording' | 'stopped';
 export type CaptureMode = 'microphone' | 'microphone_system';
 
+const RECORDER_MIME_CANDIDATES = [
+  'audio/mpeg',
+  'audio/mp3',
+  'audio/webm;codecs=opus',
+  'audio/webm',
+] as const;
+const DEFAULT_AUDIO_MIME = 'audio/webm';
+
+function pickRecorderMimeType(): string | undefined {
+  if (typeof window === 'undefined' || typeof MediaRecorder === 'undefined') {
+    return undefined;
+  }
+  if (typeof MediaRecorder.isTypeSupported !== 'function') {
+    return undefined;
+  }
+  return RECORDER_MIME_CANDIDATES.find((mimeType) => MediaRecorder.isTypeSupported(mimeType));
+}
+
 interface UseAudioRecorderResult {
   status: RecordingStatus;
   captureMode: CaptureMode;
@@ -137,7 +155,10 @@ export function useAudioRecorder(): UseAudioRecorderResult {
 
       recordingStreamRef.current = recordingStream;
 
-      const recorder = new MediaRecorder(recordingStream);
+      const recorderMimeType = pickRecorderMimeType();
+      const recorder = recorderMimeType
+        ? new MediaRecorder(recordingStream, { mimeType: recorderMimeType })
+        : new MediaRecorder(recordingStream);
       recorderRef.current = recorder;
 
       recorder.addEventListener('dataavailable', (event) => {
@@ -147,7 +168,9 @@ export function useAudioRecorder(): UseAudioRecorderResult {
       });
 
       recorder.addEventListener('stop', () => {
-        const blob = new Blob(chunksRef.current, { type: recorder.mimeType || 'audio/webm' });
+        const blob = new Blob(chunksRef.current, {
+          type: recorder.mimeType || recorderMimeType || DEFAULT_AUDIO_MIME,
+        });
         setAudioBlob(blob);
 
         if (audioUrl) {
