@@ -24,7 +24,16 @@ function getVisual(status: ProviderHealthStatus): StatusVisual {
 }
 
 export default function ProviderStatusIndicator() {
-  const { providerHealth, isChecking, checkError, refresh } = useProviderStatus();
+  const {
+    providerHealth,
+    isChecking,
+    checkError,
+    backendStatus,
+    isRestartingBackend,
+    restartError,
+    refresh,
+    restartBackend,
+  } = useProviderStatus();
   const visual = useMemo(
     () =>
       providerHealth
@@ -46,11 +55,28 @@ export default function ProviderStatusIndicator() {
         <button
           type="button"
           className="btn btn--ghost provider-status__refresh"
+          disabled={isChecking || isRestartingBackend}
           onClick={() => void refresh()}
         >
           Refresh
         </button>
+        <button
+          type="button"
+          className="btn btn--ghost provider-status__refresh"
+          disabled={isChecking || isRestartingBackend}
+          onClick={() => void restartBackend()}
+        >
+          {isRestartingBackend ? 'Restarting backend...' : 'Restart backend'}
+        </button>
       </div>
+      {backendStatus && (
+        <p className="provider-status__meta">
+          Backend: {backendStatus.state}
+          {backendStatus.pid ? ` | pid ${backendStatus.pid}` : ''}
+          {backendStatus.lastError ? ` | ${backendStatus.lastError}` : ''}
+        </p>
+      )}
+      {restartError && <p className="provider-status__meta">Restart failed: {restartError}</p>}
       {checkError && <p className="provider-status__meta">Check failed: {checkError}</p>}
       {!checkError && providerHealth?.upstream_status_code && (
         <p className="provider-status__meta">
