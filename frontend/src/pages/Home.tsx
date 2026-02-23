@@ -126,15 +126,70 @@ export default function Home() {
           <span className="brand__name">VoxVault</span>
         </div>
         <ProviderStatusIndicator />
-        <button
-          type="button"
-          className={`history-toggle ${historyOpen ? 'history-toggle--active' : ''}`}
-          onClick={() => setHistoryOpen((current) => !current)}
-          aria-label="Toggle history panel"
-        >
-          <span className="history-toggle__icon">{historyOpen ? 'Close' : 'Open'}</span>
-          <span className="history-toggle__count">{history.length}</span>
-        </button>
+        <div className="topbar__actions">
+          <button
+            type="button"
+            className={`history-toggle ${promptSectionOpen ? 'history-toggle--active' : ''}`}
+            onClick={() => setPromptSectionOpen((current) => !current)}
+            aria-label="Toggle known misspellings"
+          >
+            <span className="history-toggle__icon">
+              {promptSectionOpen ? 'Hide Misspellings' : 'Known Misspellings'}
+            </span>
+          </button>
+          <button
+            type="button"
+            className={`history-toggle ${historyOpen ? 'history-toggle--active' : ''}`}
+            onClick={() => setHistoryOpen((current) => !current)}
+            aria-label="Toggle history panel"
+          >
+            <span className="history-toggle__icon">{historyOpen ? 'Close' : 'Open'}</span>
+            <span className="history-toggle__count">{history.length}</span>
+          </button>
+        </div>
+
+        {promptSectionOpen && (
+          <div className="prompt-popover">
+            <label className="field-block__label" htmlFor="custom-prompt">
+              Corrections Prompt
+            </label>
+            <textarea
+              id="custom-prompt"
+              className="transcription-body prompt-panel__input"
+              value={promptDraft}
+              onChange={(event) => {
+                setPromptDraft(event.target.value);
+                if (promptStatus) {
+                  setPromptStatus(null);
+                }
+              }}
+              placeholder="Examples: teh -> the, recieve -> receive, Jon Smyth -> John Smith"
+              disabled={isPromptLoading || isPromptSaving}
+            />
+            <p className="muted muted--hint">
+              This text is sent with each transcription to help fix known misspellings.
+            </p>
+            <div className="button-row">
+              <button
+                type="button"
+                className="btn btn--primary"
+                onClick={() => void handlePromptSave()}
+                disabled={isPromptLoading || isPromptSaving}
+              >
+                {isPromptSaving ? 'Updating...' : 'Update Prompt'}
+              </button>
+              <button
+                type="button"
+                className="btn btn--ghost"
+                onClick={() => setPromptDraft(transcriptionPrompt)}
+                disabled={isPromptLoading || isPromptSaving}
+              >
+                Reset
+              </button>
+            </div>
+            {promptStatus && <span className="prompt-toolbar__status">{promptStatus}</span>}
+          </div>
+        )}
       </header>
 
       <main className={`workspace ${historyOpen ? 'workspace--history-open' : ''}`}>
@@ -202,58 +257,6 @@ export default function Home() {
               )}
             </button>
 
-            <div className="prompt-toolbar">
-              <button
-                type="button"
-                className="btn btn--ghost prompt-toolbar__toggle"
-                onClick={() => setPromptSectionOpen((current) => !current)}
-              >
-                {promptSectionOpen ? 'Hide Misspellings' : 'Known Misspellings'}
-              </button>
-              {promptStatus && <span className="prompt-toolbar__status">{promptStatus}</span>}
-            </div>
-
-            {promptSectionOpen && (
-              <div className="prompt-panel">
-                <label className="field-block__label" htmlFor="custom-prompt">
-                  Corrections Prompt
-                </label>
-                <textarea
-                  id="custom-prompt"
-                  className="transcription-body prompt-panel__input"
-                  value={promptDraft}
-                  onChange={(event) => {
-                    setPromptDraft(event.target.value);
-                    if (promptStatus) {
-                      setPromptStatus(null);
-                    }
-                  }}
-                  placeholder="Examples: teh -> the, recieve -> receive, Jon Smyth -> John Smith"
-                  disabled={isPromptLoading || isPromptSaving}
-                />
-                <p className="muted muted--hint">
-                  This text is sent with each transcription to help fix known misspellings.
-                </p>
-                <div className="button-row">
-                  <button
-                    type="button"
-                    className="btn btn--primary"
-                    onClick={() => void handlePromptSave()}
-                    disabled={isPromptLoading || isPromptSaving}
-                  >
-                    {isPromptSaving ? 'Updating...' : 'Update Prompt'}
-                  </button>
-                  <button
-                    type="button"
-                    className="btn btn--ghost"
-                    onClick={() => setPromptDraft(transcriptionPrompt)}
-                    disabled={isPromptLoading || isPromptSaving}
-                  >
-                    Reset
-                  </button>
-                </div>
-              </div>
-            )}
           </div>
         </section>
 
