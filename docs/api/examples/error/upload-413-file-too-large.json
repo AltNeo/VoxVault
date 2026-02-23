@@ -3,7 +3,7 @@
     "code": "FILE_TOO_LARGE",
     "message": "Uploaded file exceeds allowed size.",
     "details": {
-      "max_upload_size_mb": 50
+      "max_upload_size_mb": 18
     }
   },
   "request_id": "req_01jt0y6vf61tfnh0akjcx66r8x"

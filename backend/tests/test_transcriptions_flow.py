@@ -45,3 +45,19 @@ def test_upload_list_get_and_audio_flow(client, wav_bytes: bytes) -> None:
     updated = update_response.json()
     assert updated["title"] == "team standup"
     assert updated["text"] == "updated text"
+
+
+def test_upload_mp3_passthrough_flow(client) -> None:
+    upload_response = client.post(
+        "/api/upload",
+        data={"language": "en", "source": "upload"},
+        files={"file": ("sample.mp3", b"ID3mock-audio", "audio/mpeg")},
+    )
+    assert upload_response.status_code == 201
+
+    uploaded = upload_response.json()
+    assert uploaded["filename"] == "sample.mp3"
+    assert uploaded["title"] == "sample"
+    assert uploaded["source"] == "upload"
+    assert uploaded["language"] == "en"
+    assert "Mock transcription" in uploaded["text"]

@@ -329,6 +329,14 @@ class ChutesClient:
         if not isinstance(raw_chunks, list):
             return []
 
+        def _to_float(value: Any, default: float) -> float:
+            try:
+                if value is None:
+                    return default
+                return float(value)
+            except (TypeError, ValueError):
+                return default
+
         normalized: list[dict[str, Any]] = []
         for chunk in raw_chunks:
             if not isinstance(chunk, dict):
@@ -336,10 +344,12 @@ class ChutesClient:
             text = str(chunk.get("text", "")).strip()
             if not text:
                 continue
+            start = _to_float(chunk.get("start", 0.0), 0.0)
+            end = _to_float(chunk.get("end", start), start)
             normalized.append(
                 {
-                    "start": float(chunk.get("start", 0.0)),
-                    "end": float(chunk.get("end", 0.0)),
+                    "start": start,
+                    "end": end,
                     "text": text,
                 }
             )

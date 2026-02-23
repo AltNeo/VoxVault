@@ -28,12 +28,12 @@
     "@vitejs/plugin-react": "^4.3.4",
     "concurrently": "^9.1.2",
     "cross-env": "^7.0.3",
-    "electron": "^34.0.0",
-    "electron-builder": "^25.1.8",
+    "electron": "^35.7.5",
+    "electron-builder": "^26.7.0",
     "jsdom": "^26.0.0",
     "typescript": "^5.7.3",
     "vite": "^6.0.5",
-    "vitest": "^2.1.8",
+    "vitest": "^4.0.18",
     "wait-on": "^8.0.1"
   },
   "build": {
