@@ -1,3 +1,6 @@
+from app.services.chutes_client import TranscriptionResult
+
+
 def test_upload_list_get_and_audio_flow(client, wav_bytes: bytes) -> None:
     upload_response = client.post(
         "/api/upload",
@@ -61,3 +64,47 @@ def test_upload_mp3_passthrough_flow(client) -> None:
     assert uploaded["source"] == "upload"
     assert uploaded["language"] == "en"
     assert "Mock transcription" in uploaded["text"]
+
+
+def test_transcription_prompt_settings_and_upload_override(client, wav_bytes: bytes) -> None:
+    initial_prompt_response = client.get("/api/transcription-prompt")
+    assert initial_prompt_response.status_code == 200
+    assert initial_prompt_response.json()["custom_prompt"] == ""
+
+    updated_prompt_response = client.put(
+        "/api/transcription-prompt",
+        json={"custom_prompt": "teh -> the; VauxVault -> VoxVault"},
+    )
+    assert updated_prompt_response.status_code == 200
+    assert "VoxVault" in updated_prompt_response.json()["custom_prompt"]
+
+    captured: dict[str, str | None] = {}
+
+    async def fake_transcribe_audio(audio_path, language, prompt=None):
+        captured["prompt"] = prompt
+        return TranscriptionResult(
+            text=f"captured {language} for {audio_path.name}",
+            chunks=[],
+        )
+
+    client.app.state.services.chutes_client.transcribe_audio = fake_transcribe_audio
+
+    upload_response = client.post(
+        "/api/upload",
+        data={"language": "en", "source": "upload"},
+        files={"file": ("sample.wav", wav_bytes, "audio/wav")},
+    )
+    assert upload_response.status_code == 201
+    assert captured["prompt"] == "teh -> the; VauxVault -> VoxVault"
+
+    override_response = client.post(
+        "/api/upload",
+        data={
+            "language": "en",
+            "source": "upload",
+            "custom_prompt": "Alyce -> Alice; recieve -> receive",
+        },
+        files={"file": ("sample.wav", wav_bytes, "audio/wav")},
+    )
+    assert override_response.status_code == 201
+    assert captured["prompt"] == "Alyce -> Alice; recieve -> receive"

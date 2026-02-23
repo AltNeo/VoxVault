@@ -10,11 +10,20 @@ import type {
 interface UseTranscriptionResult {
   history: TranscriptionSummary[];
   activeTranscription: Transcription | null;
+  transcriptionPrompt: string;
   isLoading: boolean;
   isHistoryLoading: boolean;
+  isPromptLoading: boolean;
+  isPromptSaving: boolean;
   isSavingEdits: boolean;
   error: string | null;
-  uploadAudio: (file: File, source: TranscriptionSource) => Promise<Transcription>;
+  uploadAudio: (
+    file: File,
+    source: TranscriptionSource,
+    customPrompt?: string
+  ) => Promise<Transcription>;
+  loadTranscriptionPrompt: () => Promise<void>;
+  saveTranscriptionPrompt: (customPrompt: string) => Promise<void>;
   saveTranscriptionEdits: (id: string, title: string, text: string) => Promise<Transcription>;
   loadHistory: (input?: ListTranscriptionsInput) => Promise<void>;
   selectTranscription: (id: string) => Promise<void>;
@@ -32,8 +41,11 @@ function mergeHistory(
 export function useTranscription(): UseTranscriptionResult {
   const [history, setHistory] = useState<TranscriptionSummary[]>([]);
   const [activeTranscription, setActiveTranscription] = useState<Transcription | null>(null);
+  const [transcriptionPrompt, setTranscriptionPrompt] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isHistoryLoading, setIsHistoryLoading] = useState(false);
+  const [isPromptLoading, setIsPromptLoading] = useState(false);
+  const [isPromptSaving, setIsPromptSaving] = useState(false);
   const [isSavingEdits, setIsSavingEdits] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -53,27 +65,64 @@ export function useTranscription(): UseTranscriptionResult {
     }
   }, []);
 
-  const uploadAudio = useCallback(async (file: File, source: TranscriptionSource) => {
-    setIsLoading(true);
+  const uploadAudio = useCallback(
+    async (file: File, source: TranscriptionSource, customPrompt?: string) => {
+      setIsLoading(true);
+      setError(null);
+
+      try {
+        const transcription = await api.uploadAudio({
+          file,
+          source,
+          language: 'en',
+          customPrompt,
+        });
+
+        setActiveTranscription(transcription);
+        setHistory((current) => mergeHistory(current, transcription));
+        return transcription;
+      } catch (uploadError) {
+        const message =
+          uploadError instanceof Error ? uploadError.message : 'Failed to transcribe audio.';
+        setError(message);
+        throw uploadError;
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    []
+  );
+
+  const loadTranscriptionPrompt = useCallback(async () => {
+    setIsPromptLoading(true);
     setError(null);
 
     try {
-      const transcription = await api.uploadAudio({
-        file,
-        source,
-        language: 'en',
-      });
-
-      setActiveTranscription(transcription);
-      setHistory((current) => mergeHistory(current, transcription));
-      return transcription;
-    } catch (uploadError) {
+      const result = await api.getTranscriptionPrompt();
+      setTranscriptionPrompt(result.custom_prompt);
+    } catch (loadError) {
       const message =
-        uploadError instanceof Error ? uploadError.message : 'Failed to transcribe audio.';
+        loadError instanceof Error ? loadError.message : 'Failed to load transcription prompt.';
       setError(message);
-      throw uploadError;
     } finally {
-      setIsLoading(false);
+      setIsPromptLoading(false);
+    }
+  }, []);
+
+  const saveTranscriptionPrompt = useCallback(async (customPrompt: string) => {
+    setIsPromptSaving(true);
+    setError(null);
+
+    try {
+      const result = await api.updateTranscriptionPrompt(customPrompt);
+      setTranscriptionPrompt(result.custom_prompt);
+    } catch (saveError) {
+      const message =
+        saveError instanceof Error ? saveError.message : 'Failed to update transcription prompt.';
+      setError(message);
+      throw saveError;
+    } finally {
+      setIsPromptSaving(false);
     }
   }, []);
 
@@ -121,11 +170,16 @@ export function useTranscription(): UseTranscriptionResult {
   return {
     history,
     activeTranscription,
+    transcriptionPrompt,
     isLoading,
     isHistoryLoading,
+    isPromptLoading,
+    isPromptSaving,
     isSavingEdits,
     error,
     uploadAudio,
+    loadTranscriptionPrompt,
+    saveTranscriptionPrompt,
     saveTranscriptionEdits,
     loadHistory,
     selectTranscription,

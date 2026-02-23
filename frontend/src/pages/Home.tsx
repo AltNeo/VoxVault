@@ -23,11 +23,16 @@ export default function Home() {
   const {
     history,
     activeTranscription,
+    transcriptionPrompt,
     isLoading,
     isHistoryLoading,
+    isPromptLoading,
+    isPromptSaving,
     isSavingEdits,
     error,
     uploadAudio,
+    loadTranscriptionPrompt,
+    saveTranscriptionPrompt,
     saveTranscriptionEdits,
     loadHistory,
     selectTranscription,
@@ -36,10 +41,18 @@ export default function Home() {
   const [pendingAudio, setPendingAudio] = useState<PendingAudio | null>(null);
   const [historyOpen, setHistoryOpen] = useState(true);
   const [inputMode, setInputMode] = useState<'record' | 'upload'>('record');
+  const [promptSectionOpen, setPromptSectionOpen] = useState(false);
+  const [promptDraft, setPromptDraft] = useState('');
+  const [promptStatus, setPromptStatus] = useState<string | null>(null);
 
   useEffect(() => {
     void loadHistory();
-  }, [loadHistory]);
+    void loadTranscriptionPrompt();
+  }, [loadHistory, loadTranscriptionPrompt]);
+
+  useEffect(() => {
+    setPromptDraft(transcriptionPrompt);
+  }, [transcriptionPrompt]);
 
   const setPending = useCallback((file: File, previewUrl: string, source: TranscriptionSource) => {
     setPendingAudio((current) => {
@@ -74,8 +87,13 @@ export default function Home() {
 
   const handleSubmit = useCallback(async () => {
     if (!pendingAudio) return;
-    await uploadAudio(pendingAudio.file, pendingAudio.source);
-  }, [pendingAudio, uploadAudio]);
+    await uploadAudio(pendingAudio.file, pendingAudio.source, promptDraft);
+  }, [pendingAudio, promptDraft, uploadAudio]);
+
+  const handlePromptSave = useCallback(async () => {
+    await saveTranscriptionPrompt(promptDraft);
+    setPromptStatus('Prompt updated.');
+  }, [promptDraft, saveTranscriptionPrompt]);
 
   const handleSelectHistory = useCallback(
     async (id: string) => {
@@ -183,6 +201,59 @@ export default function Home() {
                 </>
               )}
             </button>
+
+            <div className="prompt-toolbar">
+              <button
+                type="button"
+                className="btn btn--ghost prompt-toolbar__toggle"
+                onClick={() => setPromptSectionOpen((current) => !current)}
+              >
+                {promptSectionOpen ? 'Hide Misspellings' : 'Known Misspellings'}
+              </button>
+              {promptStatus && <span className="prompt-toolbar__status">{promptStatus}</span>}
+            </div>
+
+            {promptSectionOpen && (
+              <div className="prompt-panel">
+                <label className="field-block__label" htmlFor="custom-prompt">
+                  Corrections Prompt
+                </label>
+                <textarea
+                  id="custom-prompt"
+                  className="transcription-body prompt-panel__input"
+                  value={promptDraft}
+                  onChange={(event) => {
+                    setPromptDraft(event.target.value);
+                    if (promptStatus) {
+                      setPromptStatus(null);
+                    }
+                  }}
+                  placeholder="Examples: teh -> the, recieve -> receive, Jon Smyth -> John Smith"
+                  disabled={isPromptLoading || isPromptSaving}
+                />
+                <p className="muted muted--hint">
+                  This text is sent with each transcription to help fix known misspellings.
+                </p>
+                <div className="button-row">
+                  <button
+                    type="button"
+                    className="btn btn--primary"
+                    onClick={() => void handlePromptSave()}
+                    disabled={isPromptLoading || isPromptSaving}
+                  >
+                    {isPromptSaving ? 'Updating...' : 'Update Prompt'}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn--ghost"
+                    onClick={() => setPromptDraft(transcriptionPrompt)}
+                    disabled={isPromptLoading || isPromptSaving}
+                  >
+                    Reset
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </section>
 
