@@ -90,6 +90,16 @@ export default function Home() {
     await uploadAudio(pendingAudio.file, pendingAudio.source, promptDraft);
   }, [pendingAudio, promptDraft, uploadAudio]);
 
+  const handlePromptToggle = useCallback(() => {
+    setPromptSectionOpen((current) => {
+      const next = !current;
+      if (next) {
+        void loadTranscriptionPrompt();
+      }
+      return next;
+    });
+  }, [loadTranscriptionPrompt]);
+
   const handlePromptSave = useCallback(async () => {
     await saveTranscriptionPrompt(promptDraft);
     setPromptStatus('Prompt updated.');
@@ -130,7 +140,7 @@ export default function Home() {
           <button
             type="button"
             className={`history-toggle ${promptSectionOpen ? 'history-toggle--active' : ''}`}
-            onClick={() => setPromptSectionOpen((current) => !current)}
+            onClick={handlePromptToggle}
             aria-label="Toggle known misspellings"
           >
             <span className="history-toggle__icon">
