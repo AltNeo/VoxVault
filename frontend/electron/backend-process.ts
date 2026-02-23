@@ -41,6 +41,7 @@ export function createBackendProcessManager(): BackendProcessManager {
   let state: BackendState = 'stopped';
   let startedAt: string | null = null;
   let lastError: string | null = null;
+  const expectedExitPids = new Set<number>();
 
   const getStatus = (): BackendStatus => ({
     state,
@@ -56,6 +57,9 @@ export function createBackendProcessManager(): BackendProcessManager {
     }
 
     const proc = backendProcess;
+    if (typeof proc.pid === 'number') {
+      expectedExitPids.add(proc.pid);
+    }
     backendProcess = null;
     state = 'stopped';
     startedAt = null;
@@ -125,14 +129,24 @@ export function createBackendProcessManager(): BackendProcessManager {
     });
 
     proc.once('error', (error) => {
-      lastError = error.message;
-      state = 'stopped';
-      backendProcess = null;
-      startedAt = null;
+      const isCurrentProcess = backendProcess?.pid === proc.pid;
+      if (isCurrentProcess) {
+        lastError = error.message;
+        state = 'stopped';
+        backendProcess = null;
+        startedAt = null;
+      }
     });
 
     proc.once('exit', (code, signal) => {
-      const isExpectedStop = state === 'stopped';
+      const pid = proc.pid;
+      const isCurrentProcess = backendProcess?.pid === pid;
+      const isExpectedStop = typeof pid === 'number' ? expectedExitPids.delete(pid) : false;
+
+      if (!isCurrentProcess) {
+        return;
+      }
+
       if (!isExpectedStop) {
         lastError = `backend exited unexpectedly (code=${code ?? 'null'}, signal=${signal ?? 'null'})`;
       }
@@ -144,6 +158,7 @@ export function createBackendProcessManager(): BackendProcessManager {
     await new Promise((resolve) => setTimeout(resolve, STARTUP_GRACE_MS));
     if (backendProcess) {
       state = 'running';
+      lastError = null;
     }
     return getStatus();
   };
