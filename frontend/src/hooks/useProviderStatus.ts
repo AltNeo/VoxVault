@@ -15,6 +15,7 @@ interface UseProviderStatusResult {
   isChecking: boolean;
   checkError: string | null;
   backendStatus: BackendStatus | null;
+  isBackendApiOnline: boolean;
   isRestartingBackend: boolean;
   restartError: string | null;
   refresh: () => Promise<void>;
@@ -26,6 +27,7 @@ export function useProviderStatus(): UseProviderStatusResult {
   const [isChecking, setIsChecking] = useState(false);
   const [checkError, setCheckError] = useState<string | null>(null);
   const [backendStatus, setBackendStatus] = useState<BackendStatus | null>(null);
+  const [isBackendApiOnline, setIsBackendApiOnline] = useState(false);
   const [isRestartingBackend, setIsRestartingBackend] = useState(false);
   const [restartError, setRestartError] = useState<string | null>(null);
 
@@ -49,12 +51,24 @@ export function useProviderStatus(): UseProviderStatusResult {
       if (health.status !== 'ok') {
         throw new Error('Backend health check returned a non-ok status.');
       }
+      setIsBackendApiOnline(true);
       const result = await api.providerHealth();
       setProviderHealth(result);
+
+      setBackendStatus((current) => {
+        if (!current || current.state !== 'stopped') {
+          return current;
+        }
+        return {
+          ...current,
+          lastError: null,
+        };
+      });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to check provider status.';
       setCheckError(message);
       setProviderHealth(null);
+      setIsBackendApiOnline(false);
     } finally {
       setIsChecking(false);
     }
@@ -81,6 +95,7 @@ export function useProviderStatus(): UseProviderStatusResult {
           const health = await api.health();
           if (health.status === 'ok') {
             backendReady = true;
+            setIsBackendApiOnline(true);
             break;
           }
         } catch {
@@ -97,6 +112,7 @@ export function useProviderStatus(): UseProviderStatusResult {
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to restart backend.';
       setRestartError(message);
+      setIsBackendApiOnline(false);
       await loadBackendStatus().catch(() => undefined);
     } finally {
       setIsRestartingBackend(false);
@@ -112,6 +128,7 @@ export function useProviderStatus(): UseProviderStatusResult {
     isChecking,
     checkError,
     backendStatus,
+    isBackendApiOnline,
     isRestartingBackend,
     restartError,
     refresh,

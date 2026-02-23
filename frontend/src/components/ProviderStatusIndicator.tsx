@@ -29,6 +29,7 @@ export default function ProviderStatusIndicator() {
     isChecking,
     checkError,
     backendStatus,
+    isBackendApiOnline,
     isRestartingBackend,
     restartError,
     refresh,
@@ -39,8 +40,26 @@ export default function ProviderStatusIndicator() {
       providerHealth
         ? getVisual(providerHealth.status)
         : { label: 'Checking provider...', tone: 'warn' },
-    [providerHealth]
+      [providerHealth]
   );
+  const backendMeta = useMemo(() => {
+    if (!backendStatus) {
+      return null;
+    }
+
+    if (isBackendApiOnline && backendStatus.state === 'stopped') {
+      return 'Backend: running (externally managed)';
+    }
+
+    const segments = [`Backend: ${backendStatus.state}`];
+    if (backendStatus.pid) {
+      segments.push(`pid ${backendStatus.pid}`);
+    }
+    if (backendStatus.lastError) {
+      segments.push(backendStatus.lastError);
+    }
+    return segments.join(' | ');
+  }, [backendStatus, isBackendApiOnline]);
 
   return (
     <div className="provider-status" aria-live="polite">
@@ -69,13 +88,7 @@ export default function ProviderStatusIndicator() {
           {isRestartingBackend ? 'Restarting backend...' : 'Restart backend'}
         </button>
       </div>
-      {backendStatus && (
-        <p className="provider-status__meta">
-          Backend: {backendStatus.state}
-          {backendStatus.pid ? ` | pid ${backendStatus.pid}` : ''}
-          {backendStatus.lastError ? ` | ${backendStatus.lastError}` : ''}
-        </p>
-      )}
+      {backendMeta && <p className="provider-status__meta">{backendMeta}</p>}
       {restartError && <p className="provider-status__meta">Restart failed: {restartError}</p>}
       {checkError && <p className="provider-status__meta">Check failed: {checkError}</p>}
       {!checkError && providerHealth?.upstream_status_code && (
