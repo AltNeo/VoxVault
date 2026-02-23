@@ -19,7 +19,16 @@
           fill="none"/>
 
   <!-- Waveform -->
-  <rect x="220" y="240" width="16" height="40" fill="#ffffff" rx="4"/>
-  <rect x="248" y="220" width="16" height="80" fill="#ffffff" rx="4"/>
-  <rect x="276" y="235" width="16" height="50" fill="#ffffff" rx="4"/>
+  <rect x="220" width="16" fill="#ffffff" rx="4">
+    <animate attributeName="y" values="240;220;240" dur="1s" begin="0s" repeatCount="indefinite"/>
+    <animate attributeName="height" values="40;80;40" dur="1s" begin="0s" repeatCount="indefinite"/>
+  </rect>
+  <rect x="248" width="16" fill="#ffffff" rx="4">
+    <animate attributeName="y" values="220;240;220" dur="1s" begin="0.15s" repeatCount="indefinite"/>
+    <animate attributeName="height" values="80;40;80" dur="1s" begin="0.15s" repeatCount="indefinite"/>
+  </rect>
+  <rect x="276" width="16" fill="#ffffff" rx="4">
+    <animate attributeName="y" values="235;215;235" dur="1s" begin="0.3s" repeatCount="indefinite"/>
+    <animate attributeName="height" values="50;90;50" dur="1s" begin="0.3s" repeatCount="indefinite"/>
+  </rect>
 </svg>
