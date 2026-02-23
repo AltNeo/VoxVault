@@ -96,6 +96,7 @@ export default function Home() {
       <div className="void__orb void__orb--1" />
       <div className="void__orb void__orb--2" />
       <div className="void__orb void__orb--3" />
+      <div className="void__watermark">VoxVault by AltNeo</div>
       <div
         className={`void__scrim ${historyOpen ? 'void__scrim--visible' : ''}`}
         onClick={() => setHistoryOpen(false)}

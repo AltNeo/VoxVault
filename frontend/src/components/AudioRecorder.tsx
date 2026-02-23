@@ -6,6 +6,23 @@ interface AudioRecorderProps {
   onRecorded: (file: File, previewUrl: string) => void;
 }
 
+function resolveRecordingFormat(mimeType: string): { extension: string; fallbackMimeType: string } {
+  const normalized = mimeType.toLowerCase();
+  if (normalized.includes('mpeg') || normalized.includes('mp3')) {
+    return { extension: 'mp3', fallbackMimeType: 'audio/mpeg' };
+  }
+  if (normalized.includes('mp4') || normalized.includes('m4a')) {
+    return { extension: 'm4a', fallbackMimeType: 'audio/mp4' };
+  }
+  if (normalized.includes('wav')) {
+    return { extension: 'wav', fallbackMimeType: 'audio/wav' };
+  }
+  if (normalized.includes('ogg')) {
+    return { extension: 'ogg', fallbackMimeType: 'audio/ogg' };
+  }
+  return { extension: 'webm', fallbackMimeType: 'audio/webm' };
+}
+
 function formatDuration(totalSeconds: number): string {
   const mins = Math.floor(totalSeconds / 60);
   const secs = totalSeconds % 60;
@@ -33,8 +50,10 @@ export default function AudioRecorder({ disabled = false, onRecorded }: AudioRec
     if (!audioBlob || !audioUrl) {
       return;
     }
-    const file = new File([audioBlob], `recording-${Date.now()}.webm`, {
-      type: audioBlob.type || 'audio/webm',
+
+    const format = resolveRecordingFormat(audioBlob.type);
+    const file = new File([audioBlob], `recording-${Date.now()}.${format.extension}`, {
+      type: audioBlob.type || format.fallbackMimeType,
     });
     onRecorded(file, audioUrl);
   }, [audioBlob, audioUrl, onRecorded]);
@@ -49,7 +68,7 @@ export default function AudioRecorder({ disabled = false, onRecorded }: AudioRec
       </div>
 
       <p className="muted">
-        Capture a fresh clip directly in your app. Output is generated as WebM/Opus.
+        Capture a fresh clip directly in your app. Output prefers MP3 and falls back to WebM.
       </p>
 
       <div className="capture-mode-row">

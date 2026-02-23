@@ -1,10 +1,12 @@
 import { app, BrowserWindow } from 'electron';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createBackendProcessManager } from './backend-process.js';
 import { registerIpcHandlers } from './ipc-handlers.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const backend = createBackendProcessManager();
 
 function createMainWindow(): BrowserWindow {
   const win = new BrowserWindow({
@@ -29,7 +31,11 @@ function createMainWindow(): BrowserWindow {
 }
 
 app.whenReady().then(() => {
-  registerIpcHandlers();
+  registerIpcHandlers({
+    getBackendStatus: backend.getStatus,
+    restartBackend: backend.restart,
+  });
+  void backend.start();
   createMainWindow();
 
   app.on('activate', () => {
@@ -43,4 +49,8 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit();
   }
+});
+
+app.on('before-quit', async () => {
+  await backend.stop();
 });

@@ -24,14 +24,42 @@ function getVisual(status: ProviderHealthStatus): StatusVisual {
 }
 
 export default function ProviderStatusIndicator() {
-  const { providerHealth, isChecking, checkError, refresh } = useProviderStatus();
+  const {
+    providerHealth,
+    isChecking,
+    checkError,
+    backendStatus,
+    isBackendApiOnline,
+    isRestartingBackend,
+    restartError,
+    refresh,
+    restartBackend,
+  } = useProviderStatus();
   const visual = useMemo(
     () =>
       providerHealth
         ? getVisual(providerHealth.status)
         : { label: 'Checking provider...', tone: 'warn' },
-    [providerHealth]
+      [providerHealth]
   );
+  const backendMeta = useMemo(() => {
+    if (!backendStatus) {
+      return null;
+    }
+
+    if (isBackendApiOnline && backendStatus.state === 'stopped') {
+      return 'Backend: running (externally managed)';
+    }
+
+    const segments = [`Backend: ${backendStatus.state}`];
+    if (backendStatus.pid) {
+      segments.push(`pid ${backendStatus.pid}`);
+    }
+    if (backendStatus.lastError) {
+      segments.push(backendStatus.lastError);
+    }
+    return segments.join(' | ');
+  }, [backendStatus, isBackendApiOnline]);
 
   return (
     <div className="provider-status" aria-live="polite">
@@ -46,11 +74,22 @@ export default function ProviderStatusIndicator() {
         <button
           type="button"
           className="btn btn--ghost provider-status__refresh"
+          disabled={isChecking || isRestartingBackend}
           onClick={() => void refresh()}
         >
           Refresh
         </button>
+        <button
+          type="button"
+          className="btn btn--ghost provider-status__refresh"
+          disabled={isChecking || isRestartingBackend}
+          onClick={() => void restartBackend()}
+        >
+          {isRestartingBackend ? 'Restarting backend...' : 'Restart backend'}
+        </button>
       </div>
+      {backendMeta && <p className="provider-status__meta">{backendMeta}</p>}
+      {restartError && <p className="provider-status__meta">Restart failed: {restartError}</p>}
       {checkError && <p className="provider-status__meta">Check failed: {checkError}</p>}
       {!checkError && providerHealth?.upstream_status_code && (
         <p className="provider-status__meta">

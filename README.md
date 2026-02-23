@@ -151,7 +151,7 @@ voxvault/
 |----------|----------|-------------|
 | `CHUTES_API_TOKEN` | `backend/.env` | API key for transcription service |
 | `ALLOWED_ORIGINS` | `backend/app/core/config.py` | CORS origins |
-| `MAX_UPLOAD_SIZE_MB` | `backend/app/core/config.py` | File size limit (default: 100MB) |
+| `MAX_UPLOAD_SIZE_MB` | `backend/app/core/config.py` | File size limit (default: 18MB) |
 
 ---
 
