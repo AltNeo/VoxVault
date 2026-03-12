@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import AudioRecorder from '../components/AudioRecorder';
 import FileUploader from '../components/FileUploader';
 import ProviderStatusIndicator from '../components/ProviderStatusIndicator';
@@ -44,6 +44,7 @@ export default function Home() {
   const [promptSectionOpen, setPromptSectionOpen] = useState(false);
   const [promptDraft, setPromptDraft] = useState('');
   const [promptStatus, setPromptStatus] = useState<string | null>(null);
+  const autoSubmittedPreviewRef = useRef<string | null>(null);
 
   useEffect(() => {
     void loadHistory();
@@ -89,6 +90,30 @@ export default function Home() {
     if (!pendingAudio) return;
     await uploadAudio(pendingAudio.file, pendingAudio.source, promptDraft);
   }, [pendingAudio, promptDraft, uploadAudio]);
+
+  useEffect(() => {
+    if (!pendingAudio || pendingAudio.source !== 'recording' || isLoading) {
+      return;
+    }
+
+    if (autoSubmittedPreviewRef.current === pendingAudio.previewUrl) {
+      return;
+    }
+
+    autoSubmittedPreviewRef.current = pendingAudio.previewUrl;
+
+    void uploadAudio(pendingAudio.file, pendingAudio.source, promptDraft)
+      .then(() => {
+        setPendingAudio((current) => {
+          if (current?.previewUrl !== pendingAudio.previewUrl) {
+            return current;
+          }
+
+          return null;
+        });
+      })
+      .catch(() => undefined);
+  }, [isLoading, pendingAudio, promptDraft, uploadAudio]);
 
   const handlePromptToggle = useCallback(() => {
     setPromptSectionOpen((current) => {

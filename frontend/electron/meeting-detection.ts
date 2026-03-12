@@ -19,6 +19,7 @@ const ACTIVE_CALL_PATTERNS = [
 const NON_CALL_PATTERNS = [
   /^\s*(activity|chat|calendar|calls|files|teams|updates|apps|settings)\s*$/i,
   /^\s*(calendar\s*[|:-]\s*calendar)\s*$/i,
+  /^\s*chat\b/i,
   /\bnotifications?\b/i,
   /\bsettings\b/i,
 ] as const;

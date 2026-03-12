@@ -9,6 +9,8 @@ describe('teams meeting detection', () => {
 
   it('ignores non-call Teams windows', () => {
     expect(isLikelyTeamsCallWindow('Chat')).toBe(false);
+    expect(isLikelyTeamsCallWindow('Chat | Karanth, Sujay | Microsoft Teams')).toBe(false);
+    expect(isLikelyTeamsCallWindow('Chat ML Promo Planning | Microsoft Teams')).toBe(false);
     expect(isLikelyTeamsCallWindow('Calendar | Microsoft Teams')).toBe(false);
     expect(isLikelyTeamsCallWindow('Calendar | Calendar | Microsoft Teams')).toBe(false);
     expect(isLikelyTeamsCallWindow('Settings | Microsoft Teams')).toBe(false);
