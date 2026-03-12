@@ -1,26 +1,10 @@
 import { useEffect } from 'react';
 import { useAudioRecorder } from '../hooks/useAudioRecorder';
+import { normalizeRecordedAudio } from '../services/recorded-audio';
 
 interface AudioRecorderProps {
   disabled?: boolean;
   onRecorded: (file: File, previewUrl: string) => void;
-}
-
-function resolveRecordingFormat(mimeType: string): { extension: string; fallbackMimeType: string } {
-  const normalized = mimeType.toLowerCase();
-  if (normalized.includes('mpeg') || normalized.includes('mp3')) {
-    return { extension: 'mp3', fallbackMimeType: 'audio/mpeg' };
-  }
-  if (normalized.includes('mp4') || normalized.includes('m4a')) {
-    return { extension: 'm4a', fallbackMimeType: 'audio/mp4' };
-  }
-  if (normalized.includes('wav')) {
-    return { extension: 'wav', fallbackMimeType: 'audio/wav' };
-  }
-  if (normalized.includes('ogg')) {
-    return { extension: 'ogg', fallbackMimeType: 'audio/ogg' };
-  }
-  return { extension: 'webm', fallbackMimeType: 'audio/webm' };
 }
 
 function formatDuration(totalSeconds: number): string {
@@ -39,8 +23,15 @@ export default function AudioRecorder({ disabled = false, onRecorded }: AudioRec
     isSupported,
     supportsSystemAudio,
     systemAudioBackend,
+    autoTeamsRecordEnabled,
+    teamsCallDetected,
+    teamsCallMonitorSupported,
+    teamsMatchedWindowTitle,
+    recordingBaseName,
+    activeRecordingTrigger,
     error,
     setCaptureMode,
+    setAutoTeamsRecordEnabled,
     startRecording,
     stopRecording,
     resetRecording,
@@ -51,12 +42,47 @@ export default function AudioRecorder({ disabled = false, onRecorded }: AudioRec
       return;
     }
 
-    const format = resolveRecordingFormat(audioBlob.type);
-    const file = new File([audioBlob], `recording-${Date.now()}.${format.extension}`, {
-      type: audioBlob.type || format.fallbackMimeType,
+    let cancelled = false;
+    let ownsPreviewUrl = false;
+    let generatedPreviewUrl: string | null = null;
+
+    const prepareRecording = async () => {
+      const normalized = await normalizeRecordedAudio(audioBlob, window.electronAPI);
+      if (cancelled) {
+        return;
+      }
+
+      const previewUrl = normalized.wasConverted
+        ? (() => {
+            generatedPreviewUrl = URL.createObjectURL(normalized.blob);
+            return generatedPreviewUrl;
+          })()
+        : audioUrl;
+      const file = new File([normalized.blob], `${recordingBaseName}.${normalized.extension}`, {
+        type: normalized.mimeType,
+      });
+      onRecorded(file, previewUrl);
+      ownsPreviewUrl = true;
+    };
+
+    void prepareRecording().catch((error) => {
+      console.error('Failed to convert recording to mp3 before upload.', error);
+      if (cancelled) {
+        return;
+      }
+      const file = new File([audioBlob], `${recordingBaseName}.webm`, {
+        type: audioBlob.type || 'audio/webm',
+      });
+      onRecorded(file, audioUrl);
     });
-    onRecorded(file, audioUrl);
-  }, [audioBlob, audioUrl, onRecorded]);
+
+    return () => {
+      cancelled = true;
+      if (generatedPreviewUrl && !ownsPreviewUrl) {
+        URL.revokeObjectURL(generatedPreviewUrl);
+      }
+    };
+  }, [audioBlob, audioUrl, onRecorded, recordingBaseName]);
 
   return (
     <section className="module">
@@ -66,10 +92,6 @@ export default function AudioRecorder({ disabled = false, onRecorded }: AudioRec
           {status}
         </span>
       </div>
-
-      <p className="muted">
-        Capture a fresh clip directly in your app. Output prefers MP3 and falls back to WebM.
-      </p>
 
       <div className="capture-mode-row">
         <button
@@ -96,15 +118,52 @@ export default function AudioRecorder({ disabled = false, onRecorded }: AudioRec
       {captureMode === 'microphone_system' && (
         <p className="muted muted--hint">
           {systemAudioBackend === 'electron'
-            ? 'Electron desktop capture is active for system audio.'
-            : 'Share your screen/tab with audio enabled so call participants are captured too.'}
+            ? 'System audio capture is active.'
+            : 'Share your screen/tab with audio enabled.'}
         </p>
       )}
       {supportsSystemAudio && (
         <p className="muted muted--hint capture-backend">
-          System audio backend: {systemAudioBackend === 'electron' ? 'electron bridge' : 'browser'}
+          {systemAudioBackend === 'electron' ? 'System audio: electron bridge' : 'System audio: browser'}
         </p>
       )}
+      <label
+        className={`automation-toggle ${
+          autoTeamsRecordEnabled ? 'automation-toggle--active' : ''
+        } ${!teamsCallMonitorSupported ? 'automation-toggle--disabled' : ''}`}
+      >
+        <input
+          type="checkbox"
+          checked={autoTeamsRecordEnabled}
+          onChange={(event) => setAutoTeamsRecordEnabled(event.target.checked)}
+          disabled={disabled || !teamsCallMonitorSupported || !supportsSystemAudio}
+        />
+        <span>Auto-record Teams calls</span>
+      </label>
+      {teamsCallMonitorSupported ? (
+        <p className="muted muted--hint">
+          {autoTeamsRecordEnabled
+            ? teamsCallDetected
+              ? `Teams call detected${
+                  teamsMatchedWindowTitle ? `: ${teamsMatchedWindowTitle}` : ''
+                }. Auto-record is armed.`
+              : 'Watching for a Teams call window.'
+            : 'Enable this to auto-start on Teams calls.'}
+        </p>
+      ) : (
+        <p className="muted muted--hint">
+          Teams auto-recording requires the Electron app and system audio.
+        </p>
+      )}
+      <p className="muted muted--hint">
+        Recording now:{' '}
+        <strong>
+          {status === 'recording'
+            ? `${activeRecordingTrigger === 'auto' ? 'yes (auto)' : 'yes (manual)'}`
+            : 'no'}
+        </strong>
+        {status === 'recording' ? `, saving as ${recordingBaseName}` : ''}
+      </p>
       {!supportsSystemAudio && (
         <p className="error-text">System audio capture is unavailable in this environment.</p>
       )}
@@ -119,7 +178,7 @@ export default function AudioRecorder({ disabled = false, onRecorded }: AudioRec
           className="btn btn--accent"
           type="button"
           disabled={disabled || !isSupported || status === 'recording'}
-          onClick={startRecording}
+          onClick={() => void startRecording()}
         >
           Start
         </button>

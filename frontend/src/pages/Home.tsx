@@ -209,7 +209,6 @@ export default function Home() {
           <div className="module panel panel--controls">
             <div className="panel__header">
               <h2>Capture Input</h2>
-              <p>Choose one source to prepare audio for transcription.</p>
             </div>
 
             <div className="dock__modes">

@@ -251,13 +251,6 @@ body {
   margin: 0;
 }
 
-.topbar__actions {
-  justify-self: end;
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-xs);
-}
-
 .history-toggle {
   display: inline-flex;
   align-items: center;
@@ -331,6 +324,8 @@ body {
   padding: var(--space-md);
   overflow-y: auto;
   overflow-x: hidden;
+  scrollbar-gutter: stable;
+  overscroll-behavior: contain;
 }
 
 .panel__header h2 {
@@ -383,9 +378,9 @@ body {
 }
 
 .dock__panel {
-  min-height: 340px;
+  min-height: 0;
   flex: 1;
-  overflow: hidden;
+  overflow: visible;
   display: flex;
   flex-direction: column;
 }
@@ -462,34 +457,6 @@ body {
   font-size: 0.7rem;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-}
-
-.prompt-toolbar__status {
-  font-size: 0.68rem;
-  font-family: 'Space Mono', monospace;
-  color: var(--success);
-}
-
-.prompt-popover {
-  position: absolute;
-  top: calc(100% + 8px);
-  right: var(--space-lg);
-  z-index: 22;
-  width: min(460px, calc(100vw - 2 * var(--space-lg)));
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-xs);
-  padding: var(--space-md);
-  border-radius: var(--radius-lg);
-  border: 1px solid var(--glass-border);
-  background: rgba(6, 7, 16, 0.95);
-  backdrop-filter: blur(18px);
-  box-shadow: 0 22px 40px rgba(0, 0, 0, 0.35);
-}
-
-.prompt-panel__input {
-  margin-top: 0;
-  min-height: 120px;
 }
 
 .transcript-hero {
@@ -693,6 +660,35 @@ body {
   color: var(--accent);
   text-transform: uppercase;
   letter-spacing: 0.08em;
+}
+
+.automation-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  margin-top: var(--space-sm);
+  padding: 0.7rem 0.8rem;
+  border: 1px solid var(--glass-border);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: border-color 0.2s ease, background 0.2s ease, color 0.2s ease;
+}
+
+.automation-toggle input {
+  accent-color: var(--accent);
+}
+
+.automation-toggle--active {
+  border-color: rgba(139, 92, 246, 0.55);
+  background: rgba(139, 92, 246, 0.08);
+  color: var(--text);
+}
+
+.automation-toggle--disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 .recorder-display {
@@ -1088,17 +1084,6 @@ body {
     grid-column: 1 / -1;
     justify-self: flex-start;
     align-items: flex-start;
-  }
-
-  .topbar__actions {
-    width: 100%;
-    justify-content: flex-end;
-  }
-
-  .prompt-popover {
-    top: calc(100% + 6px);
-    right: var(--space-md);
-    width: min(460px, calc(100vw - 2 * var(--space-md)));
   }
 
   .workspace,
