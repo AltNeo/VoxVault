@@ -31,6 +31,7 @@ const GET_BACKEND_STATUS_CHANNEL = 'get-backend-status';
 const RESTART_BACKEND_CHANNEL = 'restart-backend';
 const CONVERT_AUDIO_TO_MP3_CHANNEL = 'convert-audio-to-mp3';
 const GET_TEAMS_CALL_MONITOR_STATUS_CHANNEL = 'get-teams-call-monitor-status';
+const SET_TEAMS_CALL_MONITOR_ENABLED_CHANNEL = 'set-teams-call-monitor-enabled';
 const TEAMS_CALL_MONITOR_STATUS_CHANGED_CHANNEL = 'teams-call-monitor-status-changed';
 const GET_RECORDER_RUNTIME_STATUS_CHANNEL = 'get-recorder-runtime-status';
 const SET_RECORDER_RUNTIME_STATUS_CHANNEL = 'set-recorder-runtime-status';
@@ -48,6 +49,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   getTeamsCallMonitorStatus: async (): Promise<TeamsCallMonitorStatus> => {
     return ipcRenderer.invoke(GET_TEAMS_CALL_MONITOR_STATUS_CHANNEL);
+  },
+  setTeamsCallMonitorEnabled: async (enabled: boolean): Promise<void> => {
+    return ipcRenderer.invoke(SET_TEAMS_CALL_MONITOR_ENABLED_CHANNEL, enabled);
   },
   onTeamsCallMonitorStatusChanged: (
     listener: (status: TeamsCallMonitorStatus) => void

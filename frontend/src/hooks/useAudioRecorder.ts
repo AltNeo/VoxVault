@@ -290,6 +290,14 @@ export function useAudioRecorder(): UseAudioRecorderResult {
   }, [autoTeamsRecordEnabled]);
 
   useEffect(() => {
+    if (!window.electronAPI?.setTeamsCallMonitorEnabled) {
+      return;
+    }
+
+    void window.electronAPI.setTeamsCallMonitorEnabled(autoTeamsRecordEnabled).catch(() => undefined);
+  }, [autoTeamsRecordEnabled]);
+
+  useEffect(() => {
     if (!window.electronAPI?.setRecorderRuntimeStatus) {
       return;
     }

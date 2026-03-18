@@ -22,6 +22,7 @@ const GET_BACKEND_STATUS_CHANNEL = 'get-backend-status';
 const RESTART_BACKEND_CHANNEL = 'restart-backend';
 const CONVERT_AUDIO_TO_MP3_CHANNEL = 'convert-audio-to-mp3';
 const GET_TEAMS_CALL_MONITOR_STATUS_CHANNEL = 'get-teams-call-monitor-status';
+const SET_TEAMS_CALL_MONITOR_ENABLED_CHANNEL = 'set-teams-call-monitor-enabled';
 const GET_RECORDER_RUNTIME_STATUS_CHANNEL = 'get-recorder-runtime-status';
 const SET_RECORDER_RUNTIME_STATUS_CHANNEL = 'set-recorder-runtime-status';
 
@@ -29,6 +30,7 @@ type RegisterIpcHandlersOptions = {
   getBackendStatus: () => BackendStatus;
   restartBackend: () => Promise<BackendStatus>;
   getTeamsCallMonitorStatus: () => TeamsCallMonitorStatus;
+  setTeamsCallMonitorEnabled: (enabled: boolean) => void;
   getRecorderRuntimeStatus: () => RecorderRuntimeStatus;
   setRecorderRuntimeStatus: (
     status: Omit<RecorderRuntimeStatus, 'updatedAt'>
@@ -41,6 +43,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions): void {
   ipcMain.removeHandler(RESTART_BACKEND_CHANNEL);
   ipcMain.removeHandler(CONVERT_AUDIO_TO_MP3_CHANNEL);
   ipcMain.removeHandler(GET_TEAMS_CALL_MONITOR_STATUS_CHANNEL);
+  ipcMain.removeHandler(SET_TEAMS_CALL_MONITOR_ENABLED_CHANNEL);
   ipcMain.removeHandler(GET_RECORDER_RUNTIME_STATUS_CHANNEL);
   ipcMain.removeHandler(SET_RECORDER_RUNTIME_STATUS_CHANNEL);
 
@@ -67,6 +70,10 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions): void {
 
   ipcMain.handle(GET_TEAMS_CALL_MONITOR_STATUS_CHANNEL, async (): Promise<TeamsCallMonitorStatus> => {
     return options.getTeamsCallMonitorStatus();
+  });
+
+  ipcMain.handle(SET_TEAMS_CALL_MONITOR_ENABLED_CHANNEL, async (_event, enabled: boolean): Promise<void> => {
+    options.setTeamsCallMonitorEnabled(enabled);
   });
 
   ipcMain.handle(GET_RECORDER_RUNTIME_STATUS_CHANNEL, async (): Promise<RecorderRuntimeStatus> => {

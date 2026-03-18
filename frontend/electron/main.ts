@@ -68,6 +68,7 @@ app.whenReady().then(() => {
     getBackendStatus: backend.getStatus,
     restartBackend: backend.restart,
     getTeamsCallMonitorStatus: teamsCallMonitor.getStatus,
+    setTeamsCallMonitorEnabled: teamsCallMonitor.setEnabled,
     getRecorderRuntimeStatus: () => recorderRuntimeStatus,
     setRecorderRuntimeStatus,
   });
