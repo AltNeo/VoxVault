@@ -10,6 +10,7 @@ class HealthResponse(BaseModel):
 
 
 class ProviderHealthResponse(BaseModel):
+    provider: str | None = None
     status: Literal[
         "ok",
         "not_configured",

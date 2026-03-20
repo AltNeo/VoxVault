@@ -1,6 +1,5 @@
 import base64
 import logging
-from dataclasses import dataclass
 from pathlib import Path
 from time import perf_counter
 from typing import Any
@@ -9,14 +8,9 @@ import httpx
 
 from app.core.exceptions import APIError
 from app.db.storage import TranscriptionStorage
+from app.services.transcription_provider import TranscriptionResult
 
 logger = logging.getLogger("app.transactions")
-
-
-@dataclass(slots=True)
-class TranscriptionResult:
-    text: str
-    chunks: list[dict[str, Any]]
 
 
 class ChutesClient:

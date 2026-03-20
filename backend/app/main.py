@@ -17,7 +17,7 @@ from app.core.exceptions import APIError, build_error_payload
 from app.db.storage import TranscriptionStorage
 from app.services.audio_processor import AudioProcessor
 from app.services.backup_service import BackupService
-from app.services.chutes_client import ChutesClient
+from app.services.provider_factory import build_transcription_provider
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -45,10 +45,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         storage=storage,
         backup_service=BackupService(resolved_settings.backup_dir),
         audio_processor=AudioProcessor(),
-        chutes_client=ChutesClient(
-            api_url=resolved_settings.chutes_api_url,
-            api_key=resolved_settings.chutes_api_key,
-            timeout_seconds=resolved_settings.request_timeout_seconds,
+        transcription_provider=build_transcription_provider(
+            settings=resolved_settings,
             storage=storage,
         ),
     )
