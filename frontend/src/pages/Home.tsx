@@ -91,6 +91,11 @@ export default function Home() {
     await uploadAudio(pendingAudio.file, pendingAudio.source, promptDraft);
   }, [pendingAudio, promptDraft, uploadAudio]);
 
+  const clearPendingAudio = useCallback(() => {
+    setPendingAudio(null);
+    autoSubmittedPreviewRef.current = null;
+  }, []);
+
   useEffect(() => {
     if (!pendingAudio || pendingAudio.source !== 'recording' || isLoading) {
       return;
@@ -265,9 +270,19 @@ export default function Home() {
               <div className="dock__preview">
                 <audio src={playerSource} controls />
                 {pendingAudio && (
-                  <span className="dock__filename">
-                    {pendingAudio.file.name} ({formatBytes(pendingAudio.file.size)})
-                  </span>
+                  <div className="dock__preview-meta">
+                    <span className="dock__filename">
+                      {pendingAudio.file.name} ({formatBytes(pendingAudio.file.size)})
+                    </span>
+                    <button
+                      type="button"
+                      className="btn btn--ghost dock__preview-delete"
+                      onClick={clearPendingAudio}
+                      disabled={isLoading}
+                    >
+                      {pendingAudio.source === 'recording' ? 'Delete recording' : 'Remove upload'}
+                    </button>
+                  </div>
                 )}
               </div>
             )}

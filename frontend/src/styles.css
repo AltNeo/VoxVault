@@ -419,6 +419,17 @@ body {
   white-space: nowrap;
 }
 
+.dock__preview-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+}
+
+.dock__preview-delete {
+  flex-shrink: 0;
+}
+
 .dock__action {
   display: inline-flex;
   align-items: center;
