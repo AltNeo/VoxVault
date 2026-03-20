@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import AudioRecorder from '../components/AudioRecorder';
 import FileUploader from '../components/FileUploader';
 import ProviderStatusIndicator from '../components/ProviderStatusIndicator';
@@ -23,11 +23,16 @@ export default function Home() {
   const {
     history,
     activeTranscription,
+    transcriptionPrompt,
     isLoading,
     isHistoryLoading,
+    isPromptLoading,
+    isPromptSaving,
     isSavingEdits,
     error,
     uploadAudio,
+    loadTranscriptionPrompt,
+    saveTranscriptionPrompt,
     saveTranscriptionEdits,
     loadHistory,
     selectTranscription,
@@ -36,10 +41,19 @@ export default function Home() {
   const [pendingAudio, setPendingAudio] = useState<PendingAudio | null>(null);
   const [historyOpen, setHistoryOpen] = useState(true);
   const [inputMode, setInputMode] = useState<'record' | 'upload'>('record');
+  const [promptSectionOpen, setPromptSectionOpen] = useState(false);
+  const [promptDraft, setPromptDraft] = useState('');
+  const [promptStatus, setPromptStatus] = useState<string | null>(null);
+  const autoSubmittedPreviewRef = useRef<string | null>(null);
 
   useEffect(() => {
     void loadHistory();
-  }, [loadHistory]);
+    void loadTranscriptionPrompt();
+  }, [loadHistory, loadTranscriptionPrompt]);
+
+  useEffect(() => {
+    setPromptDraft(transcriptionPrompt);
+  }, [transcriptionPrompt]);
 
   const setPending = useCallback((file: File, previewUrl: string, source: TranscriptionSource) => {
     setPendingAudio((current) => {
@@ -74,8 +88,52 @@ export default function Home() {
 
   const handleSubmit = useCallback(async () => {
     if (!pendingAudio) return;
-    await uploadAudio(pendingAudio.file, pendingAudio.source);
-  }, [pendingAudio, uploadAudio]);
+    await uploadAudio(pendingAudio.file, pendingAudio.source, promptDraft);
+  }, [pendingAudio, promptDraft, uploadAudio]);
+
+  const clearPendingAudio = useCallback(() => {
+    setPendingAudio(null);
+    autoSubmittedPreviewRef.current = null;
+  }, []);
+
+  useEffect(() => {
+    if (!pendingAudio || pendingAudio.source !== 'recording' || isLoading) {
+      return;
+    }
+
+    if (autoSubmittedPreviewRef.current === pendingAudio.previewUrl) {
+      return;
+    }
+
+    autoSubmittedPreviewRef.current = pendingAudio.previewUrl;
+
+    void uploadAudio(pendingAudio.file, pendingAudio.source, promptDraft)
+      .then(() => {
+        setPendingAudio((current) => {
+          if (current?.previewUrl !== pendingAudio.previewUrl) {
+            return current;
+          }
+
+          return null;
+        });
+      })
+      .catch(() => undefined);
+  }, [isLoading, pendingAudio, promptDraft, uploadAudio]);
+
+  const handlePromptToggle = useCallback(() => {
+    setPromptSectionOpen((current) => {
+      const next = !current;
+      if (next) {
+        void loadTranscriptionPrompt();
+      }
+      return next;
+    });
+  }, [loadTranscriptionPrompt]);
+
+  const handlePromptSave = useCallback(async () => {
+    await saveTranscriptionPrompt(promptDraft);
+    setPromptStatus('Prompt updated.');
+  }, [promptDraft, saveTranscriptionPrompt]);
 
   const handleSelectHistory = useCallback(
     async (id: string) => {
@@ -108,15 +166,70 @@ export default function Home() {
           <span className="brand__name">VoxVault</span>
         </div>
         <ProviderStatusIndicator />
-        <button
-          type="button"
-          className={`history-toggle ${historyOpen ? 'history-toggle--active' : ''}`}
-          onClick={() => setHistoryOpen((current) => !current)}
-          aria-label="Toggle history panel"
-        >
-          <span className="history-toggle__icon">{historyOpen ? 'Close' : 'Open'}</span>
-          <span className="history-toggle__count">{history.length}</span>
-        </button>
+        <div className="topbar__actions">
+          <button
+            type="button"
+            className={`history-toggle ${promptSectionOpen ? 'history-toggle--active' : ''}`}
+            onClick={handlePromptToggle}
+            aria-label="Toggle known misspellings"
+          >
+            <span className="history-toggle__icon">
+              {promptSectionOpen ? 'Hide Misspellings' : 'Known Misspellings'}
+            </span>
+          </button>
+          <button
+            type="button"
+            className={`history-toggle ${historyOpen ? 'history-toggle--active' : ''}`}
+            onClick={() => setHistoryOpen((current) => !current)}
+            aria-label="Toggle history panel"
+          >
+            <span className="history-toggle__icon">{historyOpen ? 'Close' : 'Open'}</span>
+            <span className="history-toggle__count">{history.length}</span>
+          </button>
+        </div>
+
+        {promptSectionOpen && (
+          <div className="prompt-popover">
+            <label className="field-block__label" htmlFor="custom-prompt">
+              Corrections Prompt
+            </label>
+            <textarea
+              id="custom-prompt"
+              className="transcription-body prompt-panel__input"
+              value={promptDraft}
+              onChange={(event) => {
+                setPromptDraft(event.target.value);
+                if (promptStatus) {
+                  setPromptStatus(null);
+                }
+              }}
+              placeholder="Examples: teh -> the, recieve -> receive, Jon Smyth -> John Smith"
+              disabled={isPromptLoading || isPromptSaving}
+            />
+            <p className="muted muted--hint">
+              This text is sent with each transcription to help fix known misspellings.
+            </p>
+            <div className="button-row">
+              <button
+                type="button"
+                className="btn btn--primary"
+                onClick={() => void handlePromptSave()}
+                disabled={isPromptLoading || isPromptSaving}
+              >
+                {isPromptSaving ? 'Updating...' : 'Update Prompt'}
+              </button>
+              <button
+                type="button"
+                className="btn btn--ghost"
+                onClick={() => setPromptDraft(transcriptionPrompt)}
+                disabled={isPromptLoading || isPromptSaving}
+              >
+                Reset
+              </button>
+            </div>
+            {promptStatus && <span className="prompt-toolbar__status">{promptStatus}</span>}
+          </div>
+        )}
       </header>
 
       <main className={`workspace ${historyOpen ? 'workspace--history-open' : ''}`}>
@@ -126,7 +239,6 @@ export default function Home() {
           <div className="module panel panel--controls">
             <div className="panel__header">
               <h2>Capture Input</h2>
-              <p>Choose one source to prepare audio for transcription.</p>
             </div>
 
             <div className="dock__modes">
@@ -158,9 +270,19 @@ export default function Home() {
               <div className="dock__preview">
                 <audio src={playerSource} controls />
                 {pendingAudio && (
-                  <span className="dock__filename">
-                    {pendingAudio.file.name} ({formatBytes(pendingAudio.file.size)})
-                  </span>
+                  <div className="dock__preview-meta">
+                    <span className="dock__filename">
+                      {pendingAudio.file.name} ({formatBytes(pendingAudio.file.size)})
+                    </span>
+                    <button
+                      type="button"
+                      className="btn btn--ghost dock__preview-delete"
+                      onClick={clearPendingAudio}
+                      disabled={isLoading}
+                    >
+                      {pendingAudio.source === 'recording' ? 'Delete recording' : 'Remove upload'}
+                    </button>
+                  </div>
                 )}
               </div>
             )}
@@ -183,6 +305,7 @@ export default function Home() {
                 </>
               )}
             </button>
+
           </div>
         </section>
 

@@ -112,7 +112,12 @@ class ChutesClient:
             "endpoint": endpoint,
         }
 
-    async def transcribe_audio(self, audio_path: Path, language: str) -> TranscriptionResult:
+    async def transcribe_audio(
+        self,
+        audio_path: Path,
+        language: str,
+        prompt: str | None = None,
+    ) -> TranscriptionResult:
         if not self.api_url or not self.api_key:
             return self._mock_transcription(audio_path=audio_path, language=language)
 
@@ -129,15 +134,20 @@ class ChutesClient:
         endpoint = self._resolve_endpoint(self.api_url)
         start_time = perf_counter()
 
+        request_payload: dict[str, Any] = {
+            "audio_b64": audio_b64,
+            "language": language,
+        }
+        normalized_prompt = prompt.strip() if prompt else ""
+        if normalized_prompt:
+            request_payload["prompt"] = normalized_prompt
+
         try:
             async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
                 response = await client.post(
                     endpoint,
                     headers=self._headers(),
-                    json={
-                        "audio_b64": audio_b64,
-                        "language": language,
-                    },
+                    json=request_payload,
                 )
         except httpx.TimeoutException as exc:
             duration_ms = (perf_counter() - start_time) * 1000

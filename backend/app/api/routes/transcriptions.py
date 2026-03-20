@@ -16,6 +16,8 @@ from app.models.schemas import (
     Transcription,
     TranscriptionDiagnosticsResponse,
     TranscriptionListResponse,
+    TranscriptionPromptResponse,
+    TranscriptionPromptUpdateRequest,
     TranscriptionUpdateRequest,
 )
 from app.services.chutes_client import TranscriptionResult
@@ -25,8 +27,11 @@ SERVICES_DEP = Depends(get_services)
 UPLOAD_FILE = File(...)
 LANGUAGE_FORM = Form("en")
 SOURCE_FORM = Form("upload")
+CUSTOM_PROMPT_FORM = Form(None)
 LIMIT_QUERY = Query(20, ge=1, le=100)
 OFFSET_QUERY = Query(0, ge=0)
+CUSTOM_PROMPT_SETTING_KEY = "transcription_custom_prompt"
+MAX_CUSTOM_PROMPT_LENGTH = 4000
 
 
 @router.get("/health", response_model=HealthResponse)
@@ -51,6 +56,7 @@ async def upload_audio(
     file: UploadFile = UPLOAD_FILE,
     language: str = LANGUAGE_FORM,
     source: Literal["recording", "upload"] = SOURCE_FORM,
+    custom_prompt: str | None = CUSTOM_PROMPT_FORM,
     services: AppServices = SERVICES_DEP,
 ) -> dict[str, Any]:
     normalized_language = language.strip()
@@ -60,6 +66,11 @@ async def upload_audio(
             message="Language must be provided.",
             status_code=400,
         )
+    prompt_override = _normalize_custom_prompt(custom_prompt)
+    stored_custom_prompt = _normalize_custom_prompt(
+        services.storage.get_setting(CUSTOM_PROMPT_SETTING_KEY)
+    )
+    effective_custom_prompt = prompt_override or stored_custom_prompt
 
     stored_audio = await services.backup_service.save_upload(
         upload_file=file,
@@ -91,6 +102,7 @@ async def upload_audio(
             services=services,
             audio_path=transcription_input,
             language=normalized_language,
+            custom_prompt=effective_custom_prompt,
         )
         if chunk_temp_dir is not None:
             temporary_dirs.append(chunk_temp_dir)
@@ -139,6 +151,24 @@ async def upload_audio(
             status_code=500,
         )
     return _to_transcription_payload(stored_record, services.settings.api_prefix)
+
+
+@router.get("/transcription-prompt", response_model=TranscriptionPromptResponse)
+async def get_transcription_prompt(
+    services: AppServices = SERVICES_DEP,
+) -> dict[str, str]:
+    prompt = _normalize_custom_prompt(services.storage.get_setting(CUSTOM_PROMPT_SETTING_KEY))
+    return {"custom_prompt": prompt or ""}
+
+
+@router.put("/transcription-prompt", response_model=TranscriptionPromptResponse)
+async def update_transcription_prompt(
+    payload: TranscriptionPromptUpdateRequest,
+    services: AppServices = SERVICES_DEP,
+) -> dict[str, str]:
+    prompt = _normalize_custom_prompt(payload.custom_prompt)
+    services.storage.set_setting(CUSTOM_PROMPT_SETTING_KEY, prompt or "")
+    return {"custom_prompt": prompt or ""}
 
 
 @router.get("/transcriptions", response_model=TranscriptionListResponse)
@@ -284,20 +314,29 @@ async def _transcribe_with_chunking(
     services: AppServices,
     audio_path: Path,
     language: str,
+    custom_prompt: str | None,
 ) -> tuple[TranscriptionResult, Path | None]:
     chunk_paths = services.audio_processor.split_for_max_size(
         audio_path,
         services.settings.max_transcription_chunk_mb,
     )
     if len(chunk_paths) == 1 and chunk_paths[0] == audio_path:
-        return await services.chutes_client.transcribe_audio(audio_path, language), None
+        return await services.chutes_client.transcribe_audio(
+            audio_path,
+            language,
+            prompt=custom_prompt,
+        ), None
 
     merged_text_parts: list[str] = []
     merged_chunks: list[dict[str, Any]] = []
     chunk_offset_seconds = 0.0
 
     for chunk_path in chunk_paths:
-        chunk_result = await services.chutes_client.transcribe_audio(chunk_path, language)
+        chunk_result = await services.chutes_client.transcribe_audio(
+            chunk_path,
+            language,
+            prompt=custom_prompt,
+        )
         chunk_duration_seconds = services.audio_processor.get_duration_seconds(chunk_path) or 0.0
 
         if chunk_result.text.strip():
@@ -348,3 +387,18 @@ def _offset_chunks(chunks: list[dict[str, Any]], offset_seconds: float) -> list[
             }
         )
     return offset_chunks
+
+
+def _normalize_custom_prompt(prompt: str | None) -> str | None:
+    if prompt is None:
+        return None
+    normalized = prompt.strip()
+    if not normalized:
+        return None
+    if len(normalized) > MAX_CUSTOM_PROMPT_LENGTH:
+        raise APIError(
+            code="CUSTOM_PROMPT_TOO_LONG",
+            message=f"Custom prompt must be at most {MAX_CUSTOM_PROMPT_LENGTH} characters.",
+            status_code=422,
+        )
+    return normalized

@@ -66,6 +66,7 @@ export interface UploadAudioInput {
   file: File;
   source?: TranscriptionSource;
   language?: string;
+  customPrompt?: string;
 }
 
 export interface UpdateTranscriptionInput {
@@ -77,4 +78,8 @@ export interface UpdateTranscriptionInput {
 export interface ListTranscriptionsInput {
   limit?: number;
   offset?: number;
+}
+
+export interface TranscriptionPromptResponse {
+  custom_prompt: string;
 }

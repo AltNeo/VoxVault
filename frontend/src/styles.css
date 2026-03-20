@@ -324,6 +324,8 @@ body {
   padding: var(--space-md);
   overflow-y: auto;
   overflow-x: hidden;
+  scrollbar-gutter: stable;
+  overscroll-behavior: contain;
 }
 
 .panel__header h2 {
@@ -376,9 +378,9 @@ body {
 }
 
 .dock__panel {
-  min-height: 340px;
+  min-height: 0;
   flex: 1;
-  overflow: hidden;
+  overflow: visible;
   display: flex;
   flex-direction: column;
 }
@@ -415,6 +417,17 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.dock__preview-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+}
+
+.dock__preview-delete {
+  flex-shrink: 0;
 }
 
 .dock__action {
@@ -658,6 +671,35 @@ body {
   color: var(--accent);
   text-transform: uppercase;
   letter-spacing: 0.08em;
+}
+
+.automation-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  margin-top: var(--space-sm);
+  padding: 0.7rem 0.8rem;
+  border: 1px solid var(--glass-border);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: border-color 0.2s ease, background 0.2s ease, color 0.2s ease;
+}
+
+.automation-toggle input {
+  accent-color: var(--accent);
+}
+
+.automation-toggle--active {
+  border-color: rgba(139, 92, 246, 0.55);
+  background: rgba(139, 92, 246, 0.08);
+  color: var(--text);
+}
+
+.automation-toggle--disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 .recorder-display {

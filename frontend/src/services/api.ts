@@ -3,6 +3,7 @@ import type {
   HealthResponse,
   ListTranscriptionsInput,
   ProviderHealthResponse,
+  TranscriptionPromptResponse,
   Transcription,
   TranscriptionListResponse,
   TranscriptionSummary,
@@ -11,6 +12,7 @@ import type {
 } from '../types/api';
 
 const MOCK_STORAGE_KEY = 'mock_transcriptions_v1';
+const MOCK_PROMPT_STORAGE_KEY = 'mock_transcription_prompt_v1';
 const DEFAULT_BASE_URL = 'http://localhost:8000';
 const DEFAULT_DELAY_MS = 300;
 const mockAudioRegistry = new Map<string, string>();
@@ -27,6 +29,8 @@ export interface ApiClient {
   health(): Promise<HealthResponse>;
   providerHealth(): Promise<ProviderHealthResponse>;
   uploadAudio(input: UploadAudioInput): Promise<Transcription>;
+  getTranscriptionPrompt(): Promise<TranscriptionPromptResponse>;
+  updateTranscriptionPrompt(customPrompt: string): Promise<TranscriptionPromptResponse>;
   updateTranscription(input: UpdateTranscriptionInput): Promise<Transcription>;
   listTranscriptions(input?: ListTranscriptionsInput): Promise<TranscriptionListResponse>;
   getTranscription(id: string): Promise<Transcription>;
@@ -220,6 +224,22 @@ function createMockClient(storage: StorageLike): ApiClient {
       return transcription;
     },
 
+    async getTranscriptionPrompt() {
+      await delay(DEFAULT_DELAY_MS);
+      return {
+        custom_prompt: storage.getItem(MOCK_PROMPT_STORAGE_KEY) ?? '',
+      };
+    },
+
+    async updateTranscriptionPrompt(customPrompt) {
+      await delay(DEFAULT_DELAY_MS);
+      const normalizedPrompt = customPrompt.trim();
+      storage.setItem(MOCK_PROMPT_STORAGE_KEY, normalizedPrompt);
+      return {
+        custom_prompt: normalizedPrompt,
+      };
+    },
+
     async updateTranscription(input) {
       await delay(DEFAULT_DELAY_MS);
       const index = items.findIndex((item) => item.id === input.id);
@@ -306,12 +326,40 @@ function createHttpClient(baseUrl: string, fetchImpl: FetchImpl): ApiClient {
       if (input.source) {
         formData.append('source', input.source);
       }
+      if (typeof input.customPrompt === 'string') {
+        const normalizedPrompt = input.customPrompt.trim();
+        if (normalizedPrompt) {
+          formData.append('custom_prompt', normalizedPrompt);
+        }
+      }
 
       const result = await requestJson<Transcription>(fetchImpl, `${baseUrl}/api/upload`, {
         method: 'POST',
         body: formData,
       });
       return normalizeTranscription(baseUrl, result);
+    },
+
+    async getTranscriptionPrompt() {
+      return requestJson<TranscriptionPromptResponse>(
+        fetchImpl,
+        `${baseUrl}/api/transcription-prompt`,
+        {
+          method: 'GET',
+        }
+      );
+    },
+
+    async updateTranscriptionPrompt(customPrompt) {
+      return requestJson<TranscriptionPromptResponse>(
+        fetchImpl,
+        `${baseUrl}/api/transcription-prompt`,
+        {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ custom_prompt: customPrompt.trim() }),
+        }
+      );
     },
 
     async updateTranscription(input) {

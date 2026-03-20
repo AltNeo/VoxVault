@@ -84,3 +84,11 @@ class ErrorResponse(BaseModel):
 class TranscriptionUpdateRequest(BaseModel):
     title: str | None = None
     text: str | None = None
+
+
+class TranscriptionPromptResponse(BaseModel):
+    custom_prompt: str
+
+
+class TranscriptionPromptUpdateRequest(BaseModel):
+    custom_prompt: str = ""

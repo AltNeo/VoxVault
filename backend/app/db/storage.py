@@ -50,6 +50,14 @@ class TranscriptionStorage:
                 )
                 """
             )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS app_settings (
+                    key TEXT PRIMARY KEY,
+                    value TEXT NOT NULL
+                )
+                """
+            )
             conn.commit()
 
     def create_transcription(self, payload: dict[str, Any]) -> None:
@@ -208,6 +216,25 @@ class TranscriptionStorage:
             "average_ms_per_mb": round(average_ms_per_mb, 2),
             "recent_samples": recent_samples,
         }
+
+    def get_setting(self, key: str) -> str | None:
+        with sqlite3.connect(self.db_path) as conn:
+            row = conn.execute("SELECT value FROM app_settings WHERE key = ?", (key,)).fetchone()
+        if not row:
+            return None
+        return str(row[0])
+
+    def set_setting(self, key: str, value: str) -> None:
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(
+                """
+                INSERT INTO app_settings (key, value)
+                VALUES (?, ?)
+                ON CONFLICT(key) DO UPDATE SET value = excluded.value
+                """,
+                (key, value),
+            )
+            conn.commit()
 
     @staticmethod
     def _deserialize(row: dict[str, Any]) -> dict[str, Any]:
