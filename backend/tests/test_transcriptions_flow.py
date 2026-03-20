@@ -1,4 +1,4 @@
-from app.services.chutes_client import TranscriptionResult
+from app.services.transcription_provider import TranscriptionResult
 
 
 def test_upload_list_get_and_audio_flow(client, wav_bytes: bytes) -> None:
@@ -87,7 +87,7 @@ def test_transcription_prompt_settings_and_upload_override(client, wav_bytes: by
             chunks=[],
         )
 
-    client.app.state.services.chutes_client.transcribe_audio = fake_transcribe_audio
+    client.app.state.services.transcription_provider.transcribe_audio = fake_transcribe_audio
 
     upload_response = client.post(
         "/api/upload",

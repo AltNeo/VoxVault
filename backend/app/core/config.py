@@ -1,5 +1,6 @@
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
 from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -34,11 +35,18 @@ class Settings(BaseSettings):
     request_timeout_seconds: float = 60.0
     allowed_extensions: set[str] = {"wav", "mp3", "m4a", "webm"}
 
+    transcription_provider: Literal["chutes", "gemini"] = "chutes"
     chutes_api_url: str | None = None
     chutes_api_key: str | None = Field(
         default=None,
         validation_alias=AliasChoices("CHUTES_API_KEY", "CHUTES_API_TOKEN"),
     )
+    gemini_api_key: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("GEMINI_API_KEY", "GOOGLE_API_KEY"),
+    )
+    gemini_model: str = "gemini-2.5-flash"
+    gemini_api_base_url: str = "https://generativelanguage.googleapis.com"
 
 
 @lru_cache

@@ -20,7 +20,7 @@ from app.models.schemas import (
     TranscriptionPromptUpdateRequest,
     TranscriptionUpdateRequest,
 )
-from app.services.chutes_client import TranscriptionResult
+from app.services.transcription_provider import TranscriptionResult
 
 router = APIRouter()
 SERVICES_DEP = Depends(get_services)
@@ -41,14 +41,14 @@ async def health(services: AppServices = SERVICES_DEP) -> HealthResponse:
 
 @router.get("/health/provider", response_model=ProviderHealthResponse)
 async def provider_health(services: AppServices = SERVICES_DEP) -> dict[str, Any]:
-    return await services.chutes_client.ping()
+    return await services.transcription_provider.ping()
 
 
 @router.get(
     "/health/provider/transcription-metrics", response_model=TranscriptionDiagnosticsResponse
 )
 async def provider_transcription_metrics(services: AppServices = SERVICES_DEP) -> dict[str, Any]:
-    return services.chutes_client.get_transcription_metrics()
+    return services.transcription_provider.get_transcription_metrics()
 
 
 @router.post("/upload", response_model=Transcription, status_code=status.HTTP_201_CREATED)
@@ -321,7 +321,7 @@ async def _transcribe_with_chunking(
         services.settings.max_transcription_chunk_mb,
     )
     if len(chunk_paths) == 1 and chunk_paths[0] == audio_path:
-        return await services.chutes_client.transcribe_audio(
+        return await services.transcription_provider.transcribe_audio(
             audio_path,
             language,
             prompt=custom_prompt,
@@ -332,7 +332,7 @@ async def _transcribe_with_chunking(
     chunk_offset_seconds = 0.0
 
     for chunk_path in chunk_paths:
-        chunk_result = await services.chutes_client.transcribe_audio(
+        chunk_result = await services.transcription_provider.transcribe_audio(
             chunk_path,
             language,
             prompt=custom_prompt,
