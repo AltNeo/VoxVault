@@ -87,7 +87,7 @@ def test_transcription_prompt_settings_and_upload_override(client, wav_bytes: by
             chunks=[],
         )
 
-    client.app.state.services.chutes_client.transcribe_audio = fake_transcribe_audio
+    client.app.state.services.transcription_provider.transcribe_audio = fake_transcribe_audio
 
     upload_response = client.post(
         "/api/upload",

@@ -36,7 +36,9 @@ class AudioProcessor:
     def _run_ffmpeg(self, command: list[str]) -> None:
         result = subprocess.run(command, capture_output=True, text=True, check=False)
         if result.returncode != 0:
-            raise RuntimeError(result.stderr.strip() or result.stdout.strip() or "Audio conversion failed.")
+            raise RuntimeError(
+                result.stderr.strip() or result.stdout.strip() or "Audio conversion failed."
+            )
 
     def _probe_duration_seconds(self, audio_path: Path) -> float | None:
         ffmpeg_executable = self._resolve_ffmpeg()
@@ -155,7 +157,9 @@ class AudioProcessor:
                 return chunk_paths
 
         if chunk_paths:
-            oversized_chunks = [path.name for path in chunk_paths if path.stat().st_size > max_bytes]
+            oversized_chunks = [
+                path.name for path in chunk_paths if path.stat().st_size > max_bytes
+            ]
             raise RuntimeError(
                 "Failed to split audio into chunks below size limit. "
                 f"Oversized chunks: {', '.join(oversized_chunks)}"

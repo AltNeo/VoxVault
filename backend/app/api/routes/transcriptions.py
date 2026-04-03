@@ -41,14 +41,14 @@ async def health(services: AppServices = SERVICES_DEP) -> HealthResponse:
 
 @router.get("/health/provider", response_model=ProviderHealthResponse)
 async def provider_health(services: AppServices = SERVICES_DEP) -> dict[str, Any]:
-    return await services.chutes_client.ping()
+    return await services.transcription_provider.ping()
 
 
 @router.get(
     "/health/provider/transcription-metrics", response_model=TranscriptionDiagnosticsResponse
 )
 async def provider_transcription_metrics(services: AppServices = SERVICES_DEP) -> dict[str, Any]:
-    return services.chutes_client.get_transcription_metrics()
+    return services.transcription_provider.get_transcription_metrics()
 
 
 @router.post("/upload", response_model=Transcription, status_code=status.HTTP_201_CREATED)
@@ -93,7 +93,9 @@ async def upload_audio(
             transcription_input = recording_mp3_path
             stored_filename = f"{Path(stored_audio.filename).stem}.mp3"
         else:
-            transcription_input = services.audio_processor.convert_for_transcription(stored_audio.path)
+            transcription_input = services.audio_processor.convert_for_transcription(
+                stored_audio.path
+            )
             if transcription_input != stored_audio.path:
                 temporary_files.append(transcription_input)
 
@@ -321,9 +323,9 @@ async def _transcribe_with_chunking(
         services.settings.max_transcription_chunk_mb,
     )
     if len(chunk_paths) == 1 and chunk_paths[0] == audio_path:
-        return await services.chutes_client.transcribe_audio(
-            audio_path,
-            language,
+        return await services.transcription_provider.transcribe_audio(
+            audio_path=audio_path,
+            language=language,
             prompt=custom_prompt,
         ), None
 
@@ -332,9 +334,9 @@ async def _transcribe_with_chunking(
     chunk_offset_seconds = 0.0
 
     for chunk_path in chunk_paths:
-        chunk_result = await services.chutes_client.transcribe_audio(
-            chunk_path,
-            language,
+        chunk_result = await services.transcription_provider.transcribe_audio(
+            audio_path=chunk_path,
+            language=language,
             prompt=custom_prompt,
         )
         chunk_duration_seconds = services.audio_processor.get_duration_seconds(chunk_path) or 0.0

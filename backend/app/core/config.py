@@ -33,6 +33,11 @@ class Settings(BaseSettings):
     max_transcription_chunk_mb: int = 18
     request_timeout_seconds: float = 60.0
     allowed_extensions: set[str] = {"wav", "mp3", "m4a", "webm"}
+    local_transcription_enabled: bool = True
+    local_transcription_model_size: str = "small"
+    local_transcription_device: str = "cpu"
+    local_transcription_compute_type: str = "int8"
+    local_transcription_download_root: Path = REPO_ROOT / "backend" / ".model-cache"
 
     chutes_api_url: str | None = None
     chutes_api_key: str | None = Field(

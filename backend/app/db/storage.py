@@ -30,13 +30,10 @@ class TranscriptionStorage:
                 """
             )
             transcription_columns = {
-                row[1]
-                for row in conn.execute("PRAGMA table_info(transcriptions)").fetchall()
+                row[1] for row in conn.execute("PRAGMA table_info(transcriptions)").fetchall()
             }
             if "title" not in transcription_columns:
-                conn.execute(
-                    "ALTER TABLE transcriptions ADD COLUMN title TEXT NOT NULL DEFAULT ''"
-                )
+                conn.execute("ALTER TABLE transcriptions ADD COLUMN title TEXT NOT NULL DEFAULT ''")
                 conn.execute("UPDATE transcriptions SET title = filename WHERE title = ''")
             conn.execute(
                 """
