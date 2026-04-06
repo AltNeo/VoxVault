@@ -41,10 +41,13 @@ interface UseAudioRecorderResult {
   teamsMatchedWindowTitle: string | null;
   recordingBaseName: string;
   activeRecordingTrigger: RecordingTrigger | null;
+  pendingAutoRecordTitle: string | null;
   error: string | null;
   setCaptureMode: (mode: CaptureMode) => void;
   setAutoTeamsRecordEnabled: (enabled: boolean) => void;
   startRecording: (trigger?: RecordingTrigger) => Promise<void>;
+  confirmAutoRecord: () => Promise<void>;
+  dismissAutoRecord: () => Promise<void>;
   stopRecording: () => void;
   resetRecording: () => void;
 }
@@ -60,13 +63,16 @@ export function useAudioRecorder(): UseAudioRecorderResult {
   const [activeRecordingTrigger, setActiveRecordingTrigger] = useState<RecordingTrigger | null>(
     null
   );
+  const [pendingAutoRecordTitle, setPendingAutoRecordTitle] = useState<string | null>(null);
   const [autoTeamsRecordEnabled, setAutoTeamsRecordEnabledState] = useState<boolean>(() => {
     if (typeof window === 'undefined') {
-      return false;
+      return true;
     }
 
-    return window.localStorage.getItem(AUTO_TEAMS_RECORD_STORAGE_KEY) === 'true';
+    const stored = window.localStorage.getItem(AUTO_TEAMS_RECORD_STORAGE_KEY);
+    return stored === null ? true : stored === 'true';
   });
+  const [teamsIgnoreList, setTeamsIgnoreList] = useState<string[]>([]);
 
   const recorderRef = useRef<MediaRecorder | null>(null);
   const recordingStreamRef = useRef<MediaStream | null>(null);
@@ -84,6 +90,7 @@ export function useAudioRecorder(): UseAudioRecorderResult {
   const recordingTriggerRef = useRef<RecordingTrigger | null>(null);
   const previousTeamsCallDetectedRef = useRef(callDetected);
   const previousAutoTeamsRecordEnabledRef = useRef(autoTeamsRecordEnabled);
+  const previousPendingAutoRecordTitleRef = useRef<string | null>(null);
 
   const isSupported = useMemo(() => {
     return typeof window !== 'undefined' && 'MediaRecorder' in window;
@@ -124,6 +131,7 @@ export function useAudioRecorder(): UseAudioRecorderResult {
     recordingWindowTitleRef.current = null;
     recordingStartedAtRef.current = null;
     recordingTriggerRef.current = null;
+    setPendingAutoRecordTitle(null);
     setStatus('idle');
     setAudioBlob(null);
     setDurationSeconds(0);
@@ -138,6 +146,26 @@ export function useAudioRecorder(): UseAudioRecorderResult {
       setAudioUrl(null);
     }
   }, [audioUrl, clearTimer, stopStream]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!window.electronAPI?.getTeamsIgnoreList) {
+      return;
+    }
+
+    void window.electronAPI.getTeamsIgnoreList().then((titles) => {
+      if (cancelled) {
+        return;
+      }
+
+      setTeamsIgnoreList(titles);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const startRecording = useCallback(
     async (trigger: RecordingTrigger = 'manual') => {
@@ -320,9 +348,11 @@ export function useAudioRecorder(): UseAudioRecorderResult {
   useEffect(() => {
     const previousTeamsCallDetected = previousTeamsCallDetectedRef.current;
     const previousAutoTeamsRecordEnabled = previousAutoTeamsRecordEnabledRef.current;
+    const previousPendingAutoRecordTitle = previousPendingAutoRecordTitleRef.current;
 
     previousTeamsCallDetectedRef.current = callDetected;
     previousAutoTeamsRecordEnabledRef.current = autoTeamsRecordEnabled;
+    previousPendingAutoRecordTitleRef.current = pendingAutoRecordTitle;
 
     const canAutoRecord =
       autoTeamsRecordEnabled &&
@@ -330,13 +360,27 @@ export function useAudioRecorder(): UseAudioRecorderResult {
       supportsSystemAudio &&
       captureMode === 'microphone_system';
 
+    if (pendingAutoRecordTitle && teamsIgnoreList.includes(pendingAutoRecordTitle)) {
+      setPendingAutoRecordTitle(null);
+      return;
+    }
+
     if (
       canAutoRecord &&
       callDetected &&
       status !== 'recording' &&
       (!previousTeamsCallDetected || !previousAutoTeamsRecordEnabled)
     ) {
-      void startRecording('auto');
+      const currentTitle = matchedWindowTitle?.trim() ?? '';
+      if (!currentTitle || teamsIgnoreList.includes(currentTitle)) {
+        setPendingAutoRecordTitle(null);
+        return;
+      }
+
+      if (previousPendingAutoRecordTitle !== currentTitle) {
+        setPendingAutoRecordTitle(currentTitle);
+      }
+
       return;
     }
 
@@ -348,11 +392,17 @@ export function useAudioRecorder(): UseAudioRecorderResult {
     ) {
       stopRecording();
     }
+
+    if (!callDetected && pendingAutoRecordTitle) {
+      setPendingAutoRecordTitle(null);
+    }
   }, [
     autoTeamsRecordEnabled,
     callDetected,
     captureMode,
-    startRecording,
+    matchedWindowTitle,
+    pendingAutoRecordTitle,
+    teamsIgnoreList,
     status,
     stopRecording,
     supported,
@@ -379,6 +429,36 @@ export function useAudioRecorder(): UseAudioRecorderResult {
     [supportsSystemAudio]
   );
 
+  const confirmAutoRecord = useCallback(async () => {
+    if (!pendingAutoRecordTitle) {
+      return;
+    }
+
+    setPendingAutoRecordTitle(null);
+    await startRecording('auto');
+  }, [pendingAutoRecordTitle, startRecording]);
+
+  const dismissAutoRecord = useCallback(async () => {
+    if (!pendingAutoRecordTitle) {
+      return;
+    }
+
+    const title = pendingAutoRecordTitle;
+    setPendingAutoRecordTitle(null);
+
+    if (window.electronAPI?.addToTeamsIgnoreList) {
+      const updatedList = await window.electronAPI.addToTeamsIgnoreList(title).catch(() => null);
+      if (updatedList) {
+        setTeamsIgnoreList(updatedList);
+        return;
+      }
+    }
+
+    setTeamsIgnoreList((currentList) =>
+      currentList.includes(title) ? currentList : [...currentList, title]
+    );
+  }, [pendingAutoRecordTitle]);
+
   return {
     status,
     captureMode,
@@ -394,10 +474,13 @@ export function useAudioRecorder(): UseAudioRecorderResult {
     teamsMatchedWindowTitle: matchedWindowTitle,
     recordingBaseName,
     activeRecordingTrigger,
+    pendingAutoRecordTitle,
     error,
     setCaptureMode,
     setAutoTeamsRecordEnabled,
     startRecording,
+    confirmAutoRecord,
+    dismissAutoRecord,
     stopRecording,
     resetRecording,
   };

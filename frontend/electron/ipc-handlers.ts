@@ -23,6 +23,8 @@ const RESTART_BACKEND_CHANNEL = 'restart-backend';
 const CONVERT_AUDIO_TO_MP3_CHANNEL = 'convert-audio-to-mp3';
 const GET_TEAMS_CALL_MONITOR_STATUS_CHANNEL = 'get-teams-call-monitor-status';
 const SET_TEAMS_CALL_MONITOR_ENABLED_CHANNEL = 'set-teams-call-monitor-enabled';
+const GET_TEAMS_IGNORE_LIST_CHANNEL = 'get-teams-ignore-list';
+const ADD_TO_TEAMS_IGNORE_LIST_CHANNEL = 'add-to-teams-ignore-list';
 const GET_RECORDER_RUNTIME_STATUS_CHANNEL = 'get-recorder-runtime-status';
 const SET_RECORDER_RUNTIME_STATUS_CHANNEL = 'set-recorder-runtime-status';
 
@@ -31,6 +33,8 @@ type RegisterIpcHandlersOptions = {
   restartBackend: () => Promise<BackendStatus>;
   getTeamsCallMonitorStatus: () => TeamsCallMonitorStatus;
   setTeamsCallMonitorEnabled: (enabled: boolean) => void;
+  getTeamsIgnoreList: () => string[];
+  addToTeamsIgnoreList: (title: string) => string[];
   getRecorderRuntimeStatus: () => RecorderRuntimeStatus;
   setRecorderRuntimeStatus: (
     status: Omit<RecorderRuntimeStatus, 'updatedAt'>
@@ -44,6 +48,8 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions): void {
   ipcMain.removeHandler(CONVERT_AUDIO_TO_MP3_CHANNEL);
   ipcMain.removeHandler(GET_TEAMS_CALL_MONITOR_STATUS_CHANNEL);
   ipcMain.removeHandler(SET_TEAMS_CALL_MONITOR_ENABLED_CHANNEL);
+  ipcMain.removeHandler(GET_TEAMS_IGNORE_LIST_CHANNEL);
+  ipcMain.removeHandler(ADD_TO_TEAMS_IGNORE_LIST_CHANNEL);
   ipcMain.removeHandler(GET_RECORDER_RUNTIME_STATUS_CHANNEL);
   ipcMain.removeHandler(SET_RECORDER_RUNTIME_STATUS_CHANNEL);
 
@@ -79,6 +85,17 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions): void {
     SET_TEAMS_CALL_MONITOR_ENABLED_CHANNEL,
     async (_event, enabled: boolean): Promise<void> => {
       options.setTeamsCallMonitorEnabled(enabled);
+    }
+  );
+
+  ipcMain.handle(GET_TEAMS_IGNORE_LIST_CHANNEL, async (): Promise<string[]> => {
+    return options.getTeamsIgnoreList();
+  });
+
+  ipcMain.handle(
+    ADD_TO_TEAMS_IGNORE_LIST_CHANNEL,
+    async (_event, title: string): Promise<string[]> => {
+      return options.addToTeamsIgnoreList(title);
     }
   );
 

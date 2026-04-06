@@ -32,6 +32,8 @@ const RESTART_BACKEND_CHANNEL = 'restart-backend';
 const CONVERT_AUDIO_TO_MP3_CHANNEL = 'convert-audio-to-mp3';
 const GET_TEAMS_CALL_MONITOR_STATUS_CHANNEL = 'get-teams-call-monitor-status';
 const SET_TEAMS_CALL_MONITOR_ENABLED_CHANNEL = 'set-teams-call-monitor-enabled';
+const GET_TEAMS_IGNORE_LIST_CHANNEL = 'get-teams-ignore-list';
+const ADD_TO_TEAMS_IGNORE_LIST_CHANNEL = 'add-to-teams-ignore-list';
 const TEAMS_CALL_MONITOR_STATUS_CHANGED_CHANNEL = 'teams-call-monitor-status-changed';
 const GET_RECORDER_RUNTIME_STATUS_CHANNEL = 'get-recorder-runtime-status';
 const SET_RECORDER_RUNTIME_STATUS_CHANNEL = 'set-recorder-runtime-status';
@@ -52,6 +54,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   setTeamsCallMonitorEnabled: async (enabled: boolean): Promise<void> => {
     return ipcRenderer.invoke(SET_TEAMS_CALL_MONITOR_ENABLED_CHANNEL, enabled);
+  },
+  getTeamsIgnoreList: async (): Promise<string[]> => {
+    return ipcRenderer.invoke(GET_TEAMS_IGNORE_LIST_CHANNEL);
+  },
+  addToTeamsIgnoreList: async (title: string): Promise<string[]> => {
+    return ipcRenderer.invoke(ADD_TO_TEAMS_IGNORE_LIST_CHANNEL, title);
   },
   onTeamsCallMonitorStatusChanged: (
     listener: (status: TeamsCallMonitorStatus) => void

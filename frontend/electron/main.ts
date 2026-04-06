@@ -3,6 +3,7 @@ import { writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createTeamsCallMonitor } from './teams-call-monitor.js';
+import { createTeamsIgnoreList } from './teams-ignore-list.js';
 import { createBackendProcessManager } from './backend-process.js';
 import { registerIpcHandlers, type RecorderRuntimeStatus } from './ipc-handlers.js';
 
@@ -10,6 +11,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const backend = createBackendProcessManager();
 const teamsCallMonitor = createTeamsCallMonitor();
+const teamsIgnoreList = createTeamsIgnoreList();
 const recorderStatusFilePath = path.join(app.getPath('userData'), 'recorder-runtime-status.json');
 
 let recorderRuntimeStatus: RecorderRuntimeStatus = {
@@ -69,6 +71,8 @@ app.whenReady().then(() => {
     restartBackend: backend.restart,
     getTeamsCallMonitorStatus: teamsCallMonitor.getStatus,
     setTeamsCallMonitorEnabled: teamsCallMonitor.setEnabled,
+    getTeamsIgnoreList: teamsIgnoreList.getIgnoreList,
+    addToTeamsIgnoreList: teamsIgnoreList.addToIgnoreList,
     getRecorderRuntimeStatus: () => recorderRuntimeStatus,
     setRecorderRuntimeStatus,
   });

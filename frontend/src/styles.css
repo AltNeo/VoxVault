@@ -870,6 +870,51 @@ body {
   cursor: not-allowed;
 }
 
+.auto-record-prompt {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.9rem;
+  margin-top: var(--space-sm);
+  padding: 0.9rem 1rem;
+  border: 1px solid rgba(34, 197, 94, 0.35);
+  border-radius: 12px;
+  background: linear-gradient(135deg, rgba(34, 197, 94, 0.1), rgba(255, 255, 255, 0.03));
+}
+
+.auto-record-prompt__copy {
+  display: grid;
+  gap: 0.25rem;
+  min-width: 0;
+}
+
+.auto-record-prompt__copy strong {
+  font-size: 0.78rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--cyan);
+}
+
+.auto-record-prompt__copy span {
+  font-family: 'Space Mono', monospace;
+  font-size: 0.78rem;
+  color: var(--text);
+  word-break: break-word;
+}
+
+.auto-record-prompt__copy p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+}
+
+.auto-record-prompt__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
 .recorder-display {
   display: flex;
   align-items: center;

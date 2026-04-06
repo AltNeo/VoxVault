@@ -32,6 +32,8 @@ interface ElectronAPI {
   restartBackend: () => Promise<ElectronBackendStatus>;
   getTeamsCallMonitorStatus: () => Promise<ElectronTeamsCallMonitorStatus>;
   setTeamsCallMonitorEnabled: (enabled: boolean) => Promise<void>;
+  getTeamsIgnoreList: () => Promise<string[]>;
+  addToTeamsIgnoreList: (title: string) => Promise<string[]>;
   onTeamsCallMonitorStatusChanged: (
     listener: (status: ElectronTeamsCallMonitorStatus) => void
   ) => () => void;
