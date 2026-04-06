@@ -11,6 +11,18 @@ export type RecorderRuntimeStatus = {
   updatedAt: string | null;
 };
 
+export type AutoRecordPromptState = {
+  visible: boolean;
+  title: string | null;
+  updatedAt: string | null;
+};
+
+export type AutoRecordPromptRequestResult = {
+  status: 'shown' | 'ignored' | 'already-open';
+};
+
+export type AutoRecordPromptAction = 'confirm' | 'dismiss';
+
 export type AudioSource = {
   id: string;
   name: string;
@@ -25,6 +37,11 @@ const GET_TEAMS_CALL_MONITOR_STATUS_CHANNEL = 'get-teams-call-monitor-status';
 const SET_TEAMS_CALL_MONITOR_ENABLED_CHANNEL = 'set-teams-call-monitor-enabled';
 const GET_TEAMS_IGNORE_LIST_CHANNEL = 'get-teams-ignore-list';
 const ADD_TO_TEAMS_IGNORE_LIST_CHANNEL = 'add-to-teams-ignore-list';
+const GET_AUTO_RECORD_PROMPT_STATE_CHANNEL = 'get-auto-record-prompt-state';
+const REQUEST_AUTO_RECORD_PROMPT_CHANNEL = 'request-auto-record-prompt';
+const RESPOND_TO_AUTO_RECORD_PROMPT_CHANNEL = 'respond-to-auto-record-prompt';
+const AUTO_RECORD_PROMPT_STATE_CHANGED_CHANNEL = 'auto-record-prompt-state-changed';
+const AUTO_RECORD_PROMPT_ACTION_CHANNEL = 'auto-record-prompt-action';
 const GET_RECORDER_RUNTIME_STATUS_CHANNEL = 'get-recorder-runtime-status';
 const SET_RECORDER_RUNTIME_STATUS_CHANNEL = 'set-recorder-runtime-status';
 
@@ -35,6 +52,9 @@ type RegisterIpcHandlersOptions = {
   setTeamsCallMonitorEnabled: (enabled: boolean) => void;
   getTeamsIgnoreList: () => string[];
   addToTeamsIgnoreList: (title: string) => string[];
+  getAutoRecordPromptState: () => AutoRecordPromptState;
+  requestAutoRecordPrompt: (title: string) => Promise<AutoRecordPromptRequestResult>;
+  respondToAutoRecordPrompt: (action: AutoRecordPromptAction) => Promise<void>;
   getRecorderRuntimeStatus: () => RecorderRuntimeStatus;
   setRecorderRuntimeStatus: (
     status: Omit<RecorderRuntimeStatus, 'updatedAt'>
@@ -50,6 +70,9 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions): void {
   ipcMain.removeHandler(SET_TEAMS_CALL_MONITOR_ENABLED_CHANNEL);
   ipcMain.removeHandler(GET_TEAMS_IGNORE_LIST_CHANNEL);
   ipcMain.removeHandler(ADD_TO_TEAMS_IGNORE_LIST_CHANNEL);
+  ipcMain.removeHandler(GET_AUTO_RECORD_PROMPT_STATE_CHANNEL);
+  ipcMain.removeHandler(REQUEST_AUTO_RECORD_PROMPT_CHANNEL);
+  ipcMain.removeHandler(RESPOND_TO_AUTO_RECORD_PROMPT_CHANNEL);
   ipcMain.removeHandler(GET_RECORDER_RUNTIME_STATUS_CHANNEL);
   ipcMain.removeHandler(SET_RECORDER_RUNTIME_STATUS_CHANNEL);
 
@@ -99,6 +122,24 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions): void {
     }
   );
 
+  ipcMain.handle(GET_AUTO_RECORD_PROMPT_STATE_CHANNEL, async (): Promise<AutoRecordPromptState> => {
+    return options.getAutoRecordPromptState();
+  });
+
+  ipcMain.handle(
+    REQUEST_AUTO_RECORD_PROMPT_CHANNEL,
+    async (_event, title: string): Promise<AutoRecordPromptRequestResult> => {
+      return options.requestAutoRecordPrompt(title);
+    }
+  );
+
+  ipcMain.handle(
+    RESPOND_TO_AUTO_RECORD_PROMPT_CHANNEL,
+    async (_event, action: AutoRecordPromptAction): Promise<void> => {
+      await options.respondToAutoRecordPrompt(action);
+    }
+  );
+
   ipcMain.handle(GET_RECORDER_RUNTIME_STATUS_CHANNEL, async (): Promise<RecorderRuntimeStatus> => {
     return options.getRecorderRuntimeStatus();
   });
@@ -120,3 +161,8 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions): void {
     }
   );
 }
+
+export {
+  AUTO_RECORD_PROMPT_ACTION_CHANNEL,
+  AUTO_RECORD_PROMPT_STATE_CHANGED_CHANNEL,
+};

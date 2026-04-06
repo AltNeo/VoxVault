@@ -29,12 +29,9 @@ export default function AudioRecorder({ disabled = false, onRecorded }: AudioRec
     teamsMatchedWindowTitle,
     recordingBaseName,
     activeRecordingTrigger,
-    pendingAutoRecordTitle,
     error,
     setCaptureMode,
     setAutoTeamsRecordEnabled,
-    confirmAutoRecord,
-    dismissAutoRecord,
     startRecording,
     stopRecording,
     resetRecording,
@@ -131,31 +128,6 @@ export default function AudioRecorder({ disabled = false, onRecorded }: AudioRec
             ? 'System audio: electron bridge'
             : 'System audio: browser'}
         </p>
-      )}
-      {pendingAutoRecordTitle && (
-        <div className="auto-record-prompt" role="status" aria-live="polite">
-          <div className="auto-record-prompt__copy">
-            <strong>Teams window detected</strong>
-            <span>{pendingAutoRecordTitle}</span>
-            <p>Do you want to start recording now?</p>
-          </div>
-          <div className="auto-record-prompt__actions">
-            <button
-              className="btn btn--primary"
-              type="button"
-              onClick={() => void confirmAutoRecord()}
-            >
-              Yes
-            </button>
-            <button
-              className="btn btn--ghost"
-              type="button"
-              onClick={() => void dismissAutoRecord()}
-            >
-              No, ignore this title
-            </button>
-          </div>
-        </div>
       )}
       <label
         className={`automation-toggle ${

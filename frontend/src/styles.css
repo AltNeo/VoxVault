@@ -870,51 +870,6 @@ body {
   cursor: not-allowed;
 }
 
-.auto-record-prompt {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.9rem;
-  margin-top: var(--space-sm);
-  padding: 0.9rem 1rem;
-  border: 1px solid rgba(34, 197, 94, 0.35);
-  border-radius: 12px;
-  background: linear-gradient(135deg, rgba(34, 197, 94, 0.1), rgba(255, 255, 255, 0.03));
-}
-
-.auto-record-prompt__copy {
-  display: grid;
-  gap: 0.25rem;
-  min-width: 0;
-}
-
-.auto-record-prompt__copy strong {
-  font-size: 0.78rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--cyan);
-}
-
-.auto-record-prompt__copy span {
-  font-family: 'Space Mono', monospace;
-  font-size: 0.78rem;
-  color: var(--text);
-  word-break: break-word;
-}
-
-.auto-record-prompt__copy p {
-  margin: 0;
-  color: var(--text-secondary);
-  font-size: 0.82rem;
-}
-
-.auto-record-prompt__actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-}
-
 .recorder-display {
   display: flex;
   align-items: center;
@@ -1252,6 +1207,67 @@ body {
   border-color: rgba(239, 68, 68, 0.5);
   background: rgba(24, 9, 12, 0.95);
   color: #ff9ca9;
+}
+
+.prompt-window {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: var(--space-lg);
+  background:
+    radial-gradient(circle at top, rgba(239, 68, 68, 0.18), transparent 48%),
+    linear-gradient(160deg, #05060a 0%, #0d1018 100%);
+}
+
+.prompt-window__card {
+  width: min(100%, 360px);
+  padding: 1.2rem;
+  border-radius: 18px;
+  border: 1px solid rgba(239, 68, 68, 0.24);
+  background: rgba(8, 11, 18, 0.94);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+}
+
+.prompt-window__eyebrow {
+  margin: 0;
+  font-family: 'Space Mono', monospace;
+  font-size: 0.64rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #fda4af;
+}
+
+.prompt-window__title {
+  margin: 0.45rem 0 0;
+  font-size: 1.55rem;
+  line-height: 1.1;
+}
+
+.prompt-window__meeting {
+  margin: 0.85rem 0 0;
+  padding: 0.75rem;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.04);
+  font-family: 'Space Mono', monospace;
+  font-size: 0.8rem;
+  color: var(--text);
+  word-break: break-word;
+}
+
+.prompt-window__hint {
+  margin: 0.85rem 0 0;
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+}
+
+.prompt-window__actions {
+  display: flex;
+  gap: 0.6rem;
+  margin-top: 1rem;
+}
+
+.prompt-window__button {
+  flex: 1;
 }
 
 .spinner {
