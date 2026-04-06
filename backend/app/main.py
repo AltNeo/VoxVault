@@ -19,6 +19,7 @@ from app.services.audio_processor import AudioProcessor
 from app.services.backup_service import BackupService
 from app.services.chutes_client import ChutesClient
 from app.services.local_whisper_client import LocalWhisperClient
+from app.services.summary_service import SummaryService
 from app.services.transcription_provider import TranscriptionProvider
 
 
@@ -38,6 +39,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             await services.transcription_provider.warmup()
         except APIError:
             transaction_logger.exception("local.whisper.warmup_failed")
+        try:
+            await services.summary_service.warmup()
+        except Exception:
+            transaction_logger.exception("summary.model.warmup_failed")
         yield
 
     app = FastAPI(
@@ -58,6 +63,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         storage=storage,
         backup_service=BackupService(resolved_settings.backup_dir),
         audio_processor=AudioProcessor(),
+        summary_service=SummaryService(resolved_settings),
         transcription_provider=TranscriptionProvider(
             local_client=LocalWhisperClient(
                 enabled=resolved_settings.local_transcription_enabled,

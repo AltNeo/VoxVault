@@ -3,6 +3,9 @@ import type {
   HealthResponse,
   ListTranscriptionsInput,
   ProviderHealthResponse,
+  SummaryModelHealthResponse,
+  SummaryPromptResponse,
+  SummaryResponse,
   TranscriptionPromptResponse,
   Transcription,
   TranscriptionListResponse,
@@ -13,6 +16,7 @@ import type {
 
 const MOCK_STORAGE_KEY = 'mock_transcriptions_v1';
 const MOCK_PROMPT_STORAGE_KEY = 'mock_transcription_prompt_v1';
+const MOCK_SUMMARY_PROMPT_STORAGE_KEY = 'mock_summary_prompt_v1';
 const DEFAULT_BASE_URL = 'http://localhost:8000';
 const DEFAULT_DELAY_MS = 300;
 const mockAudioRegistry = new Map<string, string>();
@@ -28,9 +32,13 @@ type FetchImpl = typeof fetch;
 export interface ApiClient {
   health(): Promise<HealthResponse>;
   providerHealth(): Promise<ProviderHealthResponse>;
+  summaryModelHealth(): Promise<SummaryModelHealthResponse>;
   uploadAudio(input: UploadAudioInput): Promise<Transcription>;
   getTranscriptionPrompt(): Promise<TranscriptionPromptResponse>;
   updateTranscriptionPrompt(customPrompt: string): Promise<TranscriptionPromptResponse>;
+  getSummaryPrompt(): Promise<SummaryPromptResponse>;
+  updateSummaryPrompt(customPrompt: string): Promise<SummaryPromptResponse>;
+  summarizeTranscription(id: string, customPrompt?: string): Promise<SummaryResponse>;
   updateTranscription(input: UpdateTranscriptionInput): Promise<Transcription>;
   listTranscriptions(input?: ListTranscriptionsInput): Promise<TranscriptionListResponse>;
   getTranscription(id: string): Promise<Transcription>;
@@ -86,17 +94,11 @@ function resolveAudioUrl(baseUrl: string, value: string): string {
   return `${baseUrl}/${value}`;
 }
 
-function normalizeTranscription(baseUrl: string, item: Transcription): Transcription {
+function normalizeTranscription<T extends TranscriptionSummary>(baseUrl: string, item: T): T {
   return {
     ...item,
     audio_url: resolveAudioUrl(baseUrl, item.audio_url),
-  };
-}
-
-function normalizeSummary(baseUrl: string, item: TranscriptionSummary): TranscriptionSummary {
-  return {
-    ...item,
-    audio_url: resolveAudioUrl(baseUrl, item.audio_url),
+    summary_text: item.summary_text ?? null,
   };
 }
 
@@ -171,7 +173,10 @@ function inferText(filename: string): string {
 }
 
 function createMockClient(storage: StorageLike): ApiClient {
-  let items = parseStore(storage);
+  let items = parseStore(storage).map((item) => ({
+    ...item,
+    summary_text: item.summary_text ?? null,
+  }));
 
   return {
     async health() {
@@ -190,6 +195,15 @@ function createMockClient(storage: StorageLike): ApiClient {
         detail: 'Mock mode provider health',
         upstream_status_code: 200,
         endpoint: 'mock://provider',
+      };
+    },
+
+    async summaryModelHealth() {
+      await delay(DEFAULT_DELAY_MS);
+      return {
+        ready: true,
+        model_name: 'mock-lfm2-2.6b',
+        detail: 'Mock mode summary model health',
       };
     },
 
@@ -214,6 +228,7 @@ function createMockClient(storage: StorageLike): ApiClient {
         duration_seconds: Number((input.file.size / 32_000).toFixed(2)),
         status: 'completed',
         text: guessedText,
+        summary_text: null,
         created_at: new Date().toISOString(),
         audio_url: audioUrl,
         chunks: chunkedText,
@@ -237,6 +252,59 @@ function createMockClient(storage: StorageLike): ApiClient {
       storage.setItem(MOCK_PROMPT_STORAGE_KEY, normalizedPrompt);
       return {
         custom_prompt: normalizedPrompt,
+      };
+    },
+
+    async getSummaryPrompt() {
+      await delay(DEFAULT_DELAY_MS);
+      return {
+        custom_prompt: storage.getItem(MOCK_SUMMARY_PROMPT_STORAGE_KEY) ?? '',
+      };
+    },
+
+    async updateSummaryPrompt(customPrompt) {
+      await delay(DEFAULT_DELAY_MS);
+      const normalizedPrompt = customPrompt.trim();
+      storage.setItem(MOCK_SUMMARY_PROMPT_STORAGE_KEY, normalizedPrompt);
+      return {
+        custom_prompt: normalizedPrompt,
+      };
+    },
+
+    async summarizeTranscription(id, customPrompt) {
+      await delay(DEFAULT_DELAY_MS);
+      const index = items.findIndex((item) => item.id === id);
+      if (index < 0) {
+        throw new ApiError('Transcription not found', 404, {
+          error: { code: 'not_found', message: 'Transcription not found' },
+          request_id: 'mock',
+        });
+      }
+
+      const current = items[index];
+      const prompt = customPrompt?.trim() || storage.getItem(MOCK_SUMMARY_PROMPT_STORAGE_KEY) || '';
+      const excerpt = current.text.trim().slice(0, 120) || 'No transcript text available.';
+      const summaryText = [
+        `Key Topics: ${current.title}`,
+        `Decisions Made: none captured in mock mode`,
+        `Action Items: review transcript`,
+        `Brief Summary: ${excerpt}`,
+        prompt ? `Prompt Used: ${prompt}` : null,
+      ]
+        .filter(Boolean)
+        .join('\n');
+
+      const updated: Transcription = {
+        ...current,
+        summary_text: summaryText,
+      };
+
+      items = [updated, ...items.filter((item) => item.id !== id)];
+      saveStore(storage, items);
+
+      return {
+        id,
+        summary_text: summaryText,
       };
     },
 
@@ -316,6 +384,16 @@ function createHttpClient(baseUrl: string, fetchImpl: FetchImpl): ApiClient {
       });
     },
 
+    async summaryModelHealth() {
+      return requestJson<SummaryModelHealthResponse>(
+        fetchImpl,
+        `${baseUrl}/api/health/summary-model`,
+        {
+          method: 'GET',
+        }
+      );
+    },
+
     async uploadAudio(input) {
       const formData = new FormData();
       formData.append('file', input.file);
@@ -362,6 +440,40 @@ function createHttpClient(baseUrl: string, fetchImpl: FetchImpl): ApiClient {
       );
     },
 
+    async getSummaryPrompt() {
+      return requestJson<SummaryPromptResponse>(fetchImpl, `${baseUrl}/api/summary-prompt`, {
+        method: 'GET',
+      });
+    },
+
+    async updateSummaryPrompt(customPrompt) {
+      return requestJson<SummaryPromptResponse>(fetchImpl, `${baseUrl}/api/summary-prompt`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ custom_prompt: customPrompt.trim() }),
+      });
+    },
+
+    async summarizeTranscription(id, customPrompt) {
+      const body: Record<string, string> = {};
+      if (typeof customPrompt === 'string') {
+        const normalizedPrompt = customPrompt.trim();
+        if (normalizedPrompt) {
+          body.custom_prompt = normalizedPrompt;
+        }
+      }
+
+      return requestJson<SummaryResponse>(
+        fetchImpl,
+        `${baseUrl}/api/transcriptions/${encodeURIComponent(id)}/summarize`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        }
+      );
+    },
+
     async updateTranscription(input) {
       const body: Record<string, string> = {};
       if (typeof input.title === 'string') {
@@ -403,7 +515,7 @@ function createHttpClient(baseUrl: string, fetchImpl: FetchImpl): ApiClient {
 
       return {
         ...result,
-        items: result.items.map((item) => normalizeSummary(baseUrl, item)),
+        items: result.items.map((item) => normalizeTranscription(baseUrl, item)),
       };
     },
 

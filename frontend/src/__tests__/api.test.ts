@@ -1,4 +1,3 @@
-import { describe, expect, it, vi } from 'vitest';
 import { ApiError, createApiClient } from '../services/api';
 
 function createMemoryStorage() {
@@ -145,6 +144,26 @@ describe('api client', () => {
     expect(loaded.custom_prompt).toBe('teh -> the; recieve -> receive');
   });
 
+  it('stores and generates summaries in mock mode', async () => {
+    const client = createApiClient({
+      useMockApi: true,
+      storage: createMemoryStorage(),
+    });
+
+    const file = new File(['mock audio'], 'strategy-session.webm', { type: 'audio/webm' });
+    const created = await client.uploadAudio({ file, source: 'upload', language: 'en' });
+
+    await client.updateSummaryPrompt('  summarize decisions and actions  ');
+    const prompt = await client.getSummaryPrompt();
+    const summary = await client.summarizeTranscription(created.id);
+    const loaded = await client.getTranscription(created.id);
+
+    expect(prompt.custom_prompt).toBe('summarize decisions and actions');
+    expect(summary.summary_text).toContain('Key Topics: strategy-session');
+    expect(summary.summary_text).toContain('Prompt Used: summarize decisions and actions');
+    expect(loaded.summary_text).toBe(summary.summary_text);
+  });
+
   it('sends custom prompt with upload form data in real mode', async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(
@@ -186,5 +205,100 @@ describe('api client', () => {
     const request = call[1] as RequestInit;
     const formData = request.body as FormData;
     expect(formData.get('custom_prompt')).toBe('Jon Smyth -> John Smith');
+  });
+
+  it('calls summary endpoints in real mode', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            custom_prompt: 'meeting summary prompt',
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            custom_prompt: 'trimmed prompt',
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            ready: true,
+            model_name: 'LFM2-2.6B',
+            detail: null,
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            id: 'tx-1',
+            summary_text: 'summary output',
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          }
+        )
+      );
+
+    const client = createApiClient({
+      useMockApi: false,
+      baseUrl: 'http://localhost:8000',
+      fetchImpl: fetchMock,
+    });
+
+    const currentPrompt = await client.getSummaryPrompt();
+    const updatedPrompt = await client.updateSummaryPrompt('  trimmed prompt  ');
+    const health = await client.summaryModelHealth();
+    const summary = await client.summarizeTranscription('tx-1', '  executive summary  ');
+
+    expect(currentPrompt.custom_prompt).toBe('meeting summary prompt');
+    expect(updatedPrompt.custom_prompt).toBe('trimmed prompt');
+    expect(health.ready).toBe(true);
+    expect(summary.summary_text).toBe('summary output');
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      'http://localhost:8000/api/summary-prompt',
+      expect.objectContaining({ method: 'GET' })
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      'http://localhost:8000/api/summary-prompt',
+      expect.objectContaining({
+        method: 'PUT',
+        body: JSON.stringify({ custom_prompt: 'trimmed prompt' }),
+      })
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      'http://localhost:8000/api/health/summary-model',
+      expect.objectContaining({ method: 'GET' })
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      4,
+      'http://localhost:8000/api/transcriptions/tx-1/summarize',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ custom_prompt: 'executive summary' }),
+      })
+    );
   });
 });

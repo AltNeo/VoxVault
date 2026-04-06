@@ -124,7 +124,9 @@ export default function AudioRecorder({ disabled = false, onRecorded }: AudioRec
       )}
       {supportsSystemAudio && (
         <p className="muted muted--hint capture-backend">
-          {systemAudioBackend === 'electron' ? 'System audio: electron bridge' : 'System audio: browser'}
+          {systemAudioBackend === 'electron'
+            ? 'System audio: electron bridge'
+            : 'System audio: browser'}
         </p>
       )}
       <label

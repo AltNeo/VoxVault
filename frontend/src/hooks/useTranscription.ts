@@ -15,6 +15,7 @@ interface UseTranscriptionResult {
   isHistoryLoading: boolean;
   isPromptLoading: boolean;
   isPromptSaving: boolean;
+  isSummarizing: boolean;
   isSavingEdits: boolean;
   error: string | null;
   uploadAudio: (
@@ -24,6 +25,7 @@ interface UseTranscriptionResult {
   ) => Promise<Transcription>;
   loadTranscriptionPrompt: () => Promise<void>;
   saveTranscriptionPrompt: (customPrompt: string) => Promise<void>;
+  generateSummary: (id: string, customPrompt?: string) => Promise<void>;
   saveTranscriptionEdits: (id: string, title: string, text: string) => Promise<Transcription>;
   loadHistory: (input?: ListTranscriptionsInput) => Promise<void>;
   selectTranscription: (id: string) => Promise<void>;
@@ -46,6 +48,7 @@ export function useTranscription(): UseTranscriptionResult {
   const [isHistoryLoading, setIsHistoryLoading] = useState(false);
   const [isPromptLoading, setIsPromptLoading] = useState(false);
   const [isPromptSaving, setIsPromptSaving] = useState(false);
+  const [isSummarizing, setIsSummarizing] = useState(false);
   const [isSavingEdits, setIsSavingEdits] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -126,6 +129,26 @@ export function useTranscription(): UseTranscriptionResult {
     }
   }, []);
 
+  const generateSummary = useCallback(async (id: string, customPrompt?: string) => {
+    setIsSummarizing(true);
+    setError(null);
+
+    try {
+      await api.summarizeTranscription(id, customPrompt);
+      const refreshed = await api.getTranscription(id);
+      const { chunks: _chunks, ...summary } = refreshed;
+      setActiveTranscription(refreshed);
+      setHistory((current) => mergeHistory(current, summary));
+    } catch (summaryError) {
+      const message =
+        summaryError instanceof Error ? summaryError.message : 'Failed to generate summary.';
+      setError(message);
+      throw summaryError;
+    } finally {
+      setIsSummarizing(false);
+    }
+  }, []);
+
   const selectTranscription = useCallback(async (id: string) => {
     setIsLoading(true);
     setError(null);
@@ -175,11 +198,13 @@ export function useTranscription(): UseTranscriptionResult {
     isHistoryLoading,
     isPromptLoading,
     isPromptSaving,
+    isSummarizing,
     isSavingEdits,
     error,
     uploadAudio,
     loadTranscriptionPrompt,
     saveTranscriptionPrompt,
+    generateSummary,
     saveTranscriptionEdits,
     loadHistory,
     selectTranscription,

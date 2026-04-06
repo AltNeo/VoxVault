@@ -1,4 +1,5 @@
 import mimetypes
+import inspect
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
@@ -13,6 +14,11 @@ from app.core.exceptions import APIError
 from app.models.schemas import (
     HealthResponse,
     ProviderHealthResponse,
+    SummarizeRequest,
+    SummaryModelHealthResponse,
+    SummaryPromptResponse,
+    SummaryPromptUpdateRequest,
+    SummaryResponse,
     Transcription,
     TranscriptionDiagnosticsResponse,
     TranscriptionListResponse,
@@ -21,6 +27,7 @@ from app.models.schemas import (
     TranscriptionUpdateRequest,
 )
 from app.services.chutes_client import TranscriptionResult
+from app.services.summary_service import DEFAULT_SUMMARY_PROMPT
 
 router = APIRouter()
 SERVICES_DEP = Depends(get_services)
@@ -31,6 +38,7 @@ CUSTOM_PROMPT_FORM = Form(None)
 LIMIT_QUERY = Query(20, ge=1, le=100)
 OFFSET_QUERY = Query(0, ge=0)
 CUSTOM_PROMPT_SETTING_KEY = "transcription_custom_prompt"
+SUMMARY_PROMPT_SETTING_KEY = "summary_custom_prompt"
 MAX_CUSTOM_PROMPT_LENGTH = 4000
 
 
@@ -49,6 +57,37 @@ async def provider_health(services: AppServices = SERVICES_DEP) -> dict[str, Any
 )
 async def provider_transcription_metrics(services: AppServices = SERVICES_DEP) -> dict[str, Any]:
     return services.transcription_provider.get_transcription_metrics()
+
+
+@router.get("/health/summary-model", response_model=SummaryModelHealthResponse)
+async def summary_model_health(services: AppServices = SERVICES_DEP) -> dict[str, Any]:
+    summary_service = _get_summary_service(services)
+    if summary_service is None:
+        return {
+            "ready": False,
+            "model_name": None,
+            "detail": "Summary service is not configured.",
+        }
+
+    try:
+        ready_callable = getattr(summary_service, "is_ready", None)
+        ready = bool(ready_callable()) if callable(ready_callable) else True
+    except Exception as exc:  # pragma: no cover - defensive fallback
+        return {
+            "ready": False,
+            "model_name": getattr(summary_service, "model_name", None),
+            "detail": f"Summary model health check failed: {exc}",
+        }
+
+    return {
+        "ready": ready,
+        "model_name": getattr(summary_service, "model_name", None),
+        "detail": getattr(
+            summary_service,
+            "detail",
+            "Summary model is ready." if ready else "Summary model is not loaded.",
+        ),
+    }
 
 
 @router.post("/upload", response_model=Transcription, status_code=status.HTTP_201_CREATED)
@@ -173,6 +212,22 @@ async def update_transcription_prompt(
     return {"custom_prompt": prompt or ""}
 
 
+@router.get("/summary-prompt", response_model=SummaryPromptResponse)
+async def get_summary_prompt(services: AppServices = SERVICES_DEP) -> dict[str, str]:
+    prompt = _normalize_custom_prompt(services.storage.get_setting(SUMMARY_PROMPT_SETTING_KEY))
+    return {"custom_prompt": prompt or ""}
+
+
+@router.put("/summary-prompt", response_model=SummaryPromptResponse)
+async def update_summary_prompt(
+    payload: SummaryPromptUpdateRequest,
+    services: AppServices = SERVICES_DEP,
+) -> dict[str, str]:
+    prompt = _normalize_custom_prompt(payload.custom_prompt)
+    services.storage.set_setting(SUMMARY_PROMPT_SETTING_KEY, prompt or "")
+    return {"custom_prompt": prompt or ""}
+
+
 @router.get("/transcriptions", response_model=TranscriptionListResponse)
 async def list_transcriptions(
     limit: int = LIMIT_QUERY,
@@ -210,7 +265,7 @@ async def update_transcription(
     update: TranscriptionUpdateRequest,
     services: AppServices = SERVICES_DEP,
 ) -> dict[str, Any]:
-    if update.title is None and update.text is None:
+    if update.title is None and update.text is None and update.summary_text is None:
         raise APIError(
             code="EMPTY_UPDATE",
             message="Provide at least one field to update.",
@@ -219,6 +274,9 @@ async def update_transcription(
 
     normalized_title = update.title.strip() if update.title is not None else None
     normalized_text = update.text.strip() if update.text is not None else None
+    normalized_summary_text = (
+        update.summary_text.strip() if update.summary_text is not None else None
+    )
 
     if update.title is not None and not normalized_title:
         raise APIError(
@@ -234,10 +292,18 @@ async def update_transcription(
             status_code=422,
         )
 
+    if update.summary_text is not None and not normalized_summary_text:
+        raise APIError(
+            code="INVALID_SUMMARY_TEXT",
+            message="Summary text must not be empty.",
+            status_code=422,
+        )
+
     updated = services.storage.update_transcription(
         transcription_id,
         title=normalized_title,
         text=normalized_text,
+        summary_text=normalized_summary_text,
     )
     if not updated:
         raise APIError(
@@ -254,6 +320,81 @@ async def update_transcription(
             status_code=500,
         )
     return _to_transcription_payload(row, services.settings.api_prefix)
+
+
+@router.post("/transcriptions/{transcription_id}/summarize", response_model=SummaryResponse)
+async def summarize_transcription(
+    transcription_id: str,
+    payload: SummarizeRequest,
+    services: AppServices = SERVICES_DEP,
+) -> dict[str, str]:
+    row = services.storage.get_transcription(transcription_id)
+    if row is None:
+        raise APIError(
+            code="NOT_FOUND",
+            message="Transcription not found.",
+            status_code=404,
+        )
+
+    transcript_text = str(row.get("text", "")).strip()
+    if not transcript_text:
+        raise APIError(
+            code="EMPTY_TRANSCRIPTION",
+            message="Transcription text is empty.",
+            status_code=422,
+        )
+
+    summary_service = _get_summary_service(services)
+    if summary_service is None:
+        raise APIError(
+            code="SUMMARY_SERVICE_UNAVAILABLE",
+            message="Summary service is not configured.",
+            status_code=503,
+        )
+
+    prompt = _resolve_summary_prompt(services, payload.custom_prompt)
+    summarize = getattr(summary_service, "summarize", None)
+    if not callable(summarize):
+        raise APIError(
+            code="SUMMARY_SERVICE_UNAVAILABLE",
+            message="Summary service is not available.",
+            status_code=503,
+        )
+
+    try:
+        summary_result = summarize(transcript_text, custom_prompt=prompt)
+        if inspect.isawaitable(summary_result):
+            summary_result = await summary_result
+        summary_text = str(summary_result).strip()
+    except APIError:
+        raise
+    except Exception as exc:  # pragma: no cover - defensive fallback
+        raise APIError(
+            code="SUMMARY_GENERATION_FAILED",
+            message="Failed to generate summary.",
+            status_code=502,
+            details={"reason": str(exc)},
+        ) from exc
+
+    if not summary_text:
+        raise APIError(
+            code="EMPTY_SUMMARY",
+            message="Summary service returned empty text.",
+            status_code=502,
+        )
+
+    updated = services.storage.update_transcription(
+        transcription_id,
+        summary_text=summary_text,
+    )
+    if not updated:
+        raise APIError(
+            code="NOT_FOUND",
+            message="Transcription not found.",
+            status_code=404,
+        )
+
+    return {"id": transcription_id, "summary_text": summary_text}
 
 
 @router.get("/audio/{transcription_id}")
@@ -295,6 +436,7 @@ def _to_summary_payload(row: dict[str, Any], api_prefix: str) -> dict[str, Any]:
         "duration_seconds": row["duration_seconds"],
         "status": row["status"],
         "text": row["text"],
+        "summary_text": row.get("summary_text"),
         "created_at": row["created_at"],
         "audio_url": f"{api_prefix}/audio/{row['id']}",
     }
@@ -404,3 +546,18 @@ def _normalize_custom_prompt(prompt: str | None) -> str | None:
             status_code=422,
         )
     return normalized
+
+
+def _resolve_summary_prompt(services: AppServices, custom_prompt: str | None) -> str:
+    prompt = _normalize_custom_prompt(custom_prompt)
+    if prompt is not None:
+        return prompt
+
+    stored_prompt = _normalize_custom_prompt(
+        services.storage.get_setting(SUMMARY_PROMPT_SETTING_KEY)
+    )
+    return stored_prompt or DEFAULT_SUMMARY_PROMPT
+
+
+def _get_summary_service(services: AppServices) -> Any | None:
+    return getattr(services, "summary_service", None)

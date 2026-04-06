@@ -48,8 +48,8 @@ function createMainWindow(): BrowserWindow {
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
-      preload: path.join(__dirname, 'preload.cjs')
-    }
+      preload: path.join(__dirname, 'preload.cjs'),
+    },
   });
 
   const devServerUrl = process.env.VITE_DEV_SERVER_URL;

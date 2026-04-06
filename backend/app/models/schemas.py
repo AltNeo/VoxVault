@@ -55,6 +55,7 @@ class TranscriptionSummary(BaseModel):
     duration_seconds: float | None = None
     status: Literal["completed", "failed"]
     text: str
+    summary_text: str | None = None
     created_at: datetime
     audio_url: str
 
@@ -84,6 +85,22 @@ class ErrorResponse(BaseModel):
 class TranscriptionUpdateRequest(BaseModel):
     title: str | None = None
     text: str | None = None
+    summary_text: str | None = None
+
+
+class SummarizeRequest(BaseModel):
+    custom_prompt: str | None = None
+
+
+class SummaryResponse(BaseModel):
+    id: str
+    summary_text: str
+
+
+class SummaryModelHealthResponse(BaseModel):
+    ready: bool
+    model_name: str | None = None
+    detail: str | None = None
 
 
 class TranscriptionPromptResponse(BaseModel):
@@ -91,4 +108,12 @@ class TranscriptionPromptResponse(BaseModel):
 
 
 class TranscriptionPromptUpdateRequest(BaseModel):
+    custom_prompt: str = ""
+
+
+class SummaryPromptResponse(BaseModel):
+    custom_prompt: str
+
+
+class SummaryPromptUpdateRequest(BaseModel):
     custom_prompt: str = ""

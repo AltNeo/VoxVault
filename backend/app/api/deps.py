@@ -10,6 +10,7 @@ from app.services.transcription_provider import TranscriptionProvider
 
 if TYPE_CHECKING:
     from app.core.config import Settings
+    from app.services.summary_service import SummaryService
 
 
 @dataclass(slots=True)
@@ -19,6 +20,7 @@ class AppServices:
     backup_service: BackupService
     audio_processor: AudioProcessor
     transcription_provider: TranscriptionProvider
+    summary_service: "SummaryService"
 
 
 def get_services(request: Request) -> AppServices:

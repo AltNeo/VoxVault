@@ -23,6 +23,7 @@ class TranscriptionStorage:
                     duration_seconds REAL,
                     status TEXT NOT NULL,
                     text TEXT NOT NULL,
+                    summary_text TEXT DEFAULT NULL,
                     chunks_json TEXT NOT NULL,
                     created_at TEXT NOT NULL,
                     audio_path TEXT NOT NULL
@@ -35,6 +36,8 @@ class TranscriptionStorage:
             if "title" not in transcription_columns:
                 conn.execute("ALTER TABLE transcriptions ADD COLUMN title TEXT NOT NULL DEFAULT ''")
                 conn.execute("UPDATE transcriptions SET title = filename WHERE title = ''")
+            if "summary_text" not in transcription_columns:
+                conn.execute("ALTER TABLE transcriptions ADD COLUMN summary_text TEXT DEFAULT NULL")
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS transcription_metrics (
@@ -63,8 +66,8 @@ class TranscriptionStorage:
                 """
                 INSERT INTO transcriptions (
                     id, title, filename, source, language, duration_seconds, status, text,
-                    chunks_json, created_at, audio_path
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    summary_text, chunks_json, created_at, audio_path
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     payload["id"],
@@ -75,6 +78,7 @@ class TranscriptionStorage:
                     payload["duration_seconds"],
                     payload["status"],
                     payload["text"],
+                    payload.get("summary_text"),
                     json.dumps(payload.get("chunks", [])),
                     payload["created_at"],
                     payload["audio_path"],
@@ -88,9 +92,10 @@ class TranscriptionStorage:
         *,
         title: str | None = None,
         text: str | None = None,
+        summary_text: str | None = None,
     ) -> bool:
         updates: list[str] = []
-        values: list[str] = []
+        values: list[Any] = []
 
         if title is not None:
             updates.append("title = ?")
@@ -98,6 +103,9 @@ class TranscriptionStorage:
         if text is not None:
             updates.append("text = ?")
             values.append(text)
+        if summary_text is not None:
+            updates.append("summary_text = ?")
+            values.append(summary_text)
 
         if not updates:
             return False

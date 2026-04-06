@@ -23,6 +23,7 @@ def client(tmp_path):
         sqlite_path=tmp_path / "transcriptions.db",
         diagnostics_log_path=tmp_path / "diagnostics" / "transactions.log",
         local_transcription_enabled=False,
+        summary_model_enabled=False,
         chutes_api_url=None,
         chutes_api_key=None,
     )

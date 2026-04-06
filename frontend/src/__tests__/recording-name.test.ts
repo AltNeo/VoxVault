@@ -1,4 +1,3 @@
-import { describe, expect, it } from 'vitest';
 import { deriveRecordingBaseName } from '../services/recording-name';
 
 describe('recording name helpers', () => {

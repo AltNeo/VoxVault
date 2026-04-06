@@ -68,13 +68,19 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions): void {
     return options.restartBackend();
   });
 
-  ipcMain.handle(GET_TEAMS_CALL_MONITOR_STATUS_CHANNEL, async (): Promise<TeamsCallMonitorStatus> => {
-    return options.getTeamsCallMonitorStatus();
-  });
+  ipcMain.handle(
+    GET_TEAMS_CALL_MONITOR_STATUS_CHANNEL,
+    async (): Promise<TeamsCallMonitorStatus> => {
+      return options.getTeamsCallMonitorStatus();
+    }
+  );
 
-  ipcMain.handle(SET_TEAMS_CALL_MONITOR_ENABLED_CHANNEL, async (_event, enabled: boolean): Promise<void> => {
-    options.setTeamsCallMonitorEnabled(enabled);
-  });
+  ipcMain.handle(
+    SET_TEAMS_CALL_MONITOR_ENABLED_CHANNEL,
+    async (_event, enabled: boolean): Promise<void> => {
+      options.setTeamsCallMonitorEnabled(enabled);
+    }
+  );
 
   ipcMain.handle(GET_RECORDER_RUNTIME_STATUS_CHANNEL, async (): Promise<RecorderRuntimeStatus> => {
     return options.getRecorderRuntimeStatus();
