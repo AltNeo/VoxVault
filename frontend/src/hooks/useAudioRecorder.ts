@@ -6,6 +6,10 @@ import { deriveRecordingBaseName } from '../services/recording-name';
 export type RecordingStatus = 'idle' | 'recording' | 'stopped';
 export type CaptureMode = 'microphone' | 'microphone_system';
 export type RecordingTrigger = 'manual' | 'auto';
+type StartRecordingRequest = {
+  trigger: RecordingTrigger;
+  windowTitle: string | null;
+};
 
 const RECORDER_MIME_CANDIDATES = [
   'audio/mpeg',
@@ -44,7 +48,7 @@ interface UseAudioRecorderResult {
   error: string | null;
   setCaptureMode: (mode: CaptureMode) => void;
   setAutoTeamsRecordEnabled: (enabled: boolean) => void;
-  startRecording: (trigger?: RecordingTrigger) => Promise<void>;
+  startRecording: (trigger?: RecordingTrigger, requestedWindowTitle?: string | null) => Promise<void>;
   stopRecording: () => void;
   resetRecording: () => void;
 }
@@ -86,6 +90,8 @@ export function useAudioRecorder(): UseAudioRecorderResult {
   const previousTeamsCallDetectedRef = useRef(callDetected);
   const previousAutoTeamsRecordEnabledRef = useRef(autoTeamsRecordEnabled);
   const requestedAutoRecordTitleRef = useRef<string | null>(null);
+  const pendingStartRequestRef = useRef<StartRecordingRequest | null>(null);
+  const stoppingForRestartRef = useRef(false);
 
   const isSupported = useMemo(() => {
     return typeof window !== 'undefined' && 'MediaRecorder' in window;
@@ -127,6 +133,8 @@ export function useAudioRecorder(): UseAudioRecorderResult {
     recordingStartedAtRef.current = null;
     recordingTriggerRef.current = null;
     requestedAutoRecordTitleRef.current = null;
+    pendingStartRequestRef.current = null;
+    stoppingForRestartRef.current = false;
     setStatus('idle');
     setAudioBlob(null);
     setDurationSeconds(0);
@@ -143,22 +151,32 @@ export function useAudioRecorder(): UseAudioRecorderResult {
   }, [audioUrl, clearTimer, stopStream]);
 
   const startRecording = useCallback(
-    async (trigger: RecordingTrigger = 'manual') => {
+    async (trigger: RecordingTrigger = 'manual', requestedWindowTitle: string | null = null) => {
       if (!isSupported) {
         setError('Recording is not supported in this browser.');
         return;
       }
-
-      if (status === 'recording') {
+      const activeRecorder = recorderRef.current;
+      const hasActiveRecorder = activeRecorder !== null && activeRecorder.state !== 'inactive';
+      if (status === 'recording' || hasActiveRecorder) {
+        pendingStartRequestRef.current = {
+          trigger,
+          windowTitle: requestedWindowTitle ?? matchedWindowTitle ?? null,
+        };
+        if (hasActiveRecorder && !stoppingForRestartRef.current) {
+          stoppingForRestartRef.current = true;
+          activeRecorder.stop();
+        }
         return;
       }
 
       try {
         autoRecordingRef.current = trigger === 'auto';
-        recordingWindowTitleRef.current = matchedWindowTitle;
+        const resolvedWindowTitle = requestedWindowTitle ?? matchedWindowTitle;
+        recordingWindowTitleRef.current = resolvedWindowTitle;
         recordingStartedAtRef.current = new Date().toISOString();
         recordingTriggerRef.current = trigger;
-        setRecordingBaseName(deriveRecordingBaseName(matchedWindowTitle));
+        setRecordingBaseName(deriveRecordingBaseName(resolvedWindowTitle));
         setActiveRecordingTrigger(trigger);
         setError(null);
         setDurationSeconds(0);
@@ -214,6 +232,7 @@ export function useAudioRecorder(): UseAudioRecorderResult {
 
         recorder.addEventListener('stop', () => {
           autoRecordingRef.current = false;
+          stoppingForRestartRef.current = false;
           const blob = new Blob(chunksRef.current, {
             type: recorder.mimeType || recorderMimeType || DEFAULT_AUDIO_MIME,
           });
@@ -239,6 +258,7 @@ export function useAudioRecorder(): UseAudioRecorderResult {
         }, 1000);
       } catch (startError) {
         autoRecordingRef.current = false;
+        stoppingForRestartRef.current = false;
         recordingWindowTitleRef.current = null;
         recordingStartedAtRef.current = null;
         recordingTriggerRef.current = null;
@@ -321,6 +341,20 @@ export function useAudioRecorder(): UseAudioRecorderResult {
   }, [recordingBaseName, status]);
 
   useEffect(() => {
+    if (status !== 'stopped') {
+      return;
+    }
+
+    const pendingRequest = pendingStartRequestRef.current;
+    if (!pendingRequest) {
+      return;
+    }
+
+    pendingStartRequestRef.current = null;
+    void startRecording(pendingRequest.trigger, pendingRequest.windowTitle);
+  }, [startRecording, status]);
+
+  useEffect(() => {
     if (!window.electronAPI?.onAutoRecordPromptAction) {
       return;
     }
@@ -331,12 +365,11 @@ export function useAudioRecorder(): UseAudioRecorderResult {
         return;
       }
 
-      if (action === 'confirm' && status !== 'recording') {
-        recordingWindowTitleRef.current = title;
-        void startRecording('auto');
+      if (action === 'confirm') {
+        void startRecording('auto', title);
       }
     });
-  }, [startRecording, status]);
+  }, [startRecording]);
 
   useEffect(() => {
     const previousTeamsCallDetected = previousTeamsCallDetectedRef.current;

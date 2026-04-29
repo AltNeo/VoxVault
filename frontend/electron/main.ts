@@ -122,8 +122,8 @@ function createMainWindow(): BrowserWindow {
 
 function createAutoRecordPromptWindow(): BrowserWindow {
   const win = new BrowserWindow({
-    width: 420,
-    height: 220,
+    width: 500,
+    height: 320,
     show: false,
     resizable: false,
     minimizable: false,

@@ -11,8 +11,10 @@ param(
 
 .DESCRIPTION
     Stops existing VoxVault frontend/backend processes, clears ports 5173/8000,
-    optionally installs/tests/builds frontend, then starts `npm run dev` in
-    `frontend/`. Backend is started by Electron's built-in process manager.
+    optionally installs/tests/builds frontend, prepares backend dependencies in
+    `backend/.venv`, then starts `npm run dev` in `frontend/`.
+    Backend is started by Electron's built-in process manager using
+    VOXVAULT_BACKEND_CMD.
 
 .EXAMPLE
     ./run-electron-managed.ps1
@@ -58,7 +60,7 @@ function Stop-PortListeners {
     }
 }
 
-function Stop-VoxVaultElectron {
+function Stop-VoxVaultFrontendProcesses {
     param(
         [Parameter(Mandatory = $true)]
         [string]$RepoPath
@@ -67,35 +69,66 @@ function Stop-VoxVaultElectron {
     $escaped = [Regex]::Escape($RepoPath)
     $processes = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
         Where-Object {
-            $_.Name -eq "electron.exe" -and
+            ($_.Name -in @("electron.exe", "node.exe")) -and
             $_.CommandLine -match $escaped
         }
 
     foreach ($proc in $processes) {
-        Stop-ProcessTreeById -ProcessId $proc.ProcessId -Reason "VoxVault Electron process"
+        Stop-ProcessTreeById -ProcessId $proc.ProcessId -Reason "VoxVault frontend process"
     }
 }
 
 $rootPath = $PSScriptRoot
+$backendPath = Join-Path $rootPath "backend"
 $frontendPath = Join-Path $rootPath "frontend"
+$venvPath = Join-Path $backendPath ".venv"
+$venvPython = Join-Path $venvPath "Scripts\python.exe"
 
+if (-not (Test-Path $backendPath)) {
+    throw "Could not find backend directory at '$backendPath'."
+}
 if (-not (Test-Path $frontendPath)) {
     throw "Could not find frontend directory at '$frontendPath'."
 }
 
 Write-Host "Cleaning up running VoxVault instances..."
-Stop-VoxVaultElectron -RepoPath $rootPath
+Stop-VoxVaultFrontendProcesses -RepoPath $rootPath
 Stop-PortListeners -Ports @(5173, 8000)
+if ($Install -or -not (Test-Path $venvPython)) {
+    Write-Host "Setting up backend virtual environment..."
+    Push-Location $backendPath
+    try {
+        python -m venv .venv
+    } finally {
+        Pop-Location
+    }
+}
+
+if (-not (Test-Path $venvPython)) {
+    throw "Backend virtual environment python not found at '$venvPython'."
+}
+
+if ($Install) {
+    Write-Host "Installing backend dependencies..."
+    & $venvPython -m pip install -r (Join-Path $backendPath "requirements.txt")
+} elseif (-not (Test-Path (Join-Path $venvPath "Lib\site-packages\fastapi"))) {
+    Write-Host "Installing backend dependencies (first run)..."
+    & $venvPython -m pip install -r (Join-Path $backendPath "requirements.txt")
+}
 
 if ($NoLaunch) {
     Write-Host "Cleanup complete. Skipping launch because -NoLaunch was specified."
     exit 0
 }
+$originalBackendCmd = $env:VOXVAULT_BACKEND_CMD
+$backendCommand = "`"$venvPython`" -m uvicorn app.main:app --host 127.0.0.1 --port 8000"
+$env:VOXVAULT_BACKEND_CMD = $backendCommand
 
 Push-Location $frontendPath
 try {
     if ($Install -or -not (Test-Path "node_modules")) {
         Write-Host "Installing frontend dependencies..."
+        $env:NPM_CONFIG_IGNORE_SCRIPTS = "false"
         npm install
     } else {
         Write-Host "Dependencies already present. Skipping npm install."
@@ -110,9 +143,14 @@ try {
         Write-Host "Building frontend..."
         npm run build
     }
-
     Write-Host "Starting Electron dev app (backend managed by Electron)..."
+    Write-Host "Using backend command: $backendCommand"
     npm run dev
 } finally {
     Pop-Location
+    if ($null -eq $originalBackendCmd) {
+        Remove-Item Env:VOXVAULT_BACKEND_CMD -ErrorAction SilentlyContinue
+    } else {
+        $env:VOXVAULT_BACKEND_CMD = $originalBackendCmd
+    }
 }

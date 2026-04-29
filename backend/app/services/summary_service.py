@@ -177,20 +177,45 @@ class SummaryService:
 
     def _summarize_with_model(self, transcript_text: str, system_prompt: str) -> str:
         assert self._model is not None
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {
-                "role": "user",
-                "content": "Summarize the following meeting transcript:\n\n" f"{transcript_text}",
-            },
-        ]
-
-        try:
-            response = self._model.create_chat_completion(
-                messages=messages,
+        direct_prompt = "Summarize the following meeting transcript:\n\n"
+        if self._fits_context(system_prompt, direct_prompt, transcript_text, self._settings.summary_max_tokens):
+            return self._run_model_prompt(
+                system_prompt=system_prompt,
+                user_prefix=direct_prompt,
+                user_text=transcript_text,
                 max_tokens=self._settings.summary_max_tokens,
-                temperature=0.3,
             )
+
+        logger.info("summary.chunking_started")
+
+        chunk_max_tokens = max(16, min(self._settings.summary_max_tokens // 2, 512))
+        chunk_prompt = (
+            "Summarize this portion of the meeting transcript. Keep concrete facts, decisions, "
+            "owners, dates, blockers, and action items.\n\n"
+        )
+        chunks = self._chunk_transcript_for_model(
+            transcript_text,
+            system_prompt=system_prompt,
+            user_prefix=chunk_prompt,
+            response_tokens=chunk_max_tokens,
+        )
+
+        partial_summaries: list[str] = []
+        for index, chunk in enumerate(chunks, start=1):
+            partial_summary = self._run_model_prompt(
+                system_prompt=system_prompt,
+                user_prefix=chunk_prompt,
+                user_text=chunk,
+                max_tokens=chunk_max_tokens,
+            )
+            partial_summaries.append(f"Chunk {index} summary:\n{partial_summary}")
+
+        final_prompt = (
+            "Combine these chunk summaries into one final meeting summary. Preserve important "
+            "topics, decisions made, action items with owners, and a brief overall summary.\n\n"
+        )
+        try:
+            return self._combine_model_summaries(partial_summaries, system_prompt, final_prompt)
         except Exception as exc:
             logger.exception("summary.generate_failed")
             raise APIError(
@@ -199,8 +224,6 @@ class SummaryService:
                 status_code=502,
                 details={"reason": str(exc)},
             ) from exc
-
-        return self._extract_summary_text(response)
 
     def _summarize_with_fallback(self, transcript_text: str, system_prompt: str) -> str:
         sentences = self._split_sentences(transcript_text)
@@ -344,3 +367,209 @@ class SummaryService:
         if response is None:
             return ""
         return str(response).strip()
+
+    def _run_model_prompt(
+        self,
+        *,
+        system_prompt: str,
+        user_prefix: str,
+        user_text: str,
+        max_tokens: int,
+    ) -> str:
+        assert self._model is not None
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": f"{user_prefix}{user_text}"},
+        ]
+        response = self._model.create_chat_completion(
+            messages=messages,
+            max_tokens=max_tokens,
+            temperature=0.3,
+        )
+        return self._extract_summary_text(response)
+
+    def _fits_context(
+        self,
+        system_prompt: str,
+        user_prefix: str,
+        user_text: str,
+        response_tokens: int,
+    ) -> bool:
+        return (
+            self._estimate_prompt_tokens(system_prompt, user_prefix, user_text) + response_tokens
+            <= self._settings.summary_n_ctx
+        )
+
+    def _estimate_prompt_tokens(self, system_prompt: str, user_prefix: str, user_text: str) -> int:
+        overhead_tokens = 32
+        return (
+            self._estimate_token_count(system_prompt)
+            + self._estimate_token_count(user_prefix)
+            + self._estimate_token_count(user_text)
+            + overhead_tokens
+        )
+
+    def _estimate_token_count(self, text: str) -> int:
+        if not text:
+            return 0
+        tokenize = getattr(self._model, "tokenize", None)
+        if callable(tokenize):
+            try:
+                encoded = text.encode("utf-8", errors="ignore")
+                return len(tokenize(encoded))
+            except Exception:
+                pass
+        return max(1, len(text) // 4)
+
+    def _chunk_transcript_for_model(
+        self,
+        transcript_text: str,
+        *,
+        system_prompt: str,
+        user_prefix: str,
+        response_tokens: int,
+    ) -> list[str]:
+        sentences = self._split_sentences(transcript_text)
+        if not sentences:
+            return [transcript_text.strip()]
+
+        chunks: list[str] = []
+        current_chunk: list[str] = []
+        for sentence in sentences:
+            candidate = " ".join([*current_chunk, sentence]).strip()
+            if candidate and self._fits_context(system_prompt, user_prefix, candidate, response_tokens):
+                current_chunk.append(sentence)
+                continue
+
+            if current_chunk:
+                chunks.append(" ".join(current_chunk).strip())
+                current_chunk = []
+
+            if self._fits_context(system_prompt, user_prefix, sentence, response_tokens):
+                current_chunk.append(sentence)
+                continue
+
+            chunks.extend(
+                self._split_long_sentence(
+                    sentence,
+                    system_prompt=system_prompt,
+                    user_prefix=user_prefix,
+                    response_tokens=response_tokens,
+                )
+            )
+
+        if current_chunk:
+            chunks.append(" ".join(current_chunk).strip())
+
+        return [chunk for chunk in chunks if chunk]
+
+    def _split_long_sentence(
+        self,
+        sentence: str,
+        *,
+        system_prompt: str,
+        user_prefix: str,
+        response_tokens: int,
+    ) -> list[str]:
+        words = sentence.split()
+        if not words:
+            return []
+
+        parts: list[str] = []
+        current_words: list[str] = []
+        for word in words:
+            candidate = " ".join([*current_words, word]).strip()
+            if candidate and self._fits_context(system_prompt, user_prefix, candidate, response_tokens):
+                current_words.append(word)
+                continue
+            if current_words:
+                parts.append(" ".join(current_words))
+            current_words = [word]
+
+        if current_words:
+            parts.append(" ".join(current_words))
+        return parts
+
+    def _combine_model_summaries(
+        self,
+        summaries: list[str],
+        system_prompt: str,
+        final_prompt: str,
+    ) -> str:
+        labeled_summaries = [f"Chunk {index} summary:\n{summary}" for index, summary in enumerate(summaries, start=1)]
+        combined_text = "\n\n".join(labeled_summaries)
+        if self._fits_context(
+            system_prompt,
+            final_prompt,
+            combined_text,
+            self._settings.summary_max_tokens,
+        ):
+            return self._run_model_prompt(
+                system_prompt=system_prompt,
+                user_prefix=final_prompt,
+                user_text=combined_text,
+                max_tokens=self._settings.summary_max_tokens,
+            )
+
+        reduction_prompt = (
+            "Compress these meeting-summary notes while preserving decisions, action items, owners, "
+            "dates, and blockers.\n\n"
+        )
+        reduction_tokens = max(16, min(self._settings.summary_max_tokens // 2, 512))
+        groups = self._group_text_items_for_model(
+            labeled_summaries,
+            system_prompt=system_prompt,
+            user_prefix=reduction_prompt,
+            response_tokens=reduction_tokens,
+        )
+        if len(groups) <= 1:
+            raise APIError(
+                code="SUMMARY_INPUT_TOO_LARGE",
+                message="Transcript is too large for the configured summary model context window.",
+                status_code=422,
+            )
+
+        reduced_summaries = [
+            self._run_model_prompt(
+                system_prompt=system_prompt,
+                user_prefix=reduction_prompt,
+                user_text=group,
+                max_tokens=reduction_tokens,
+            )
+            for group in groups
+        ]
+        return self._combine_model_summaries(reduced_summaries, system_prompt, final_prompt)
+
+    def _group_text_items_for_model(
+        self,
+        items: list[str],
+        *,
+        system_prompt: str,
+        user_prefix: str,
+        response_tokens: int,
+    ) -> list[str]:
+        groups: list[str] = []
+        current_group: list[str] = []
+        for item in items:
+            candidate = "\n\n".join([*current_group, item]).strip()
+            if candidate and self._fits_context(system_prompt, user_prefix, candidate, response_tokens):
+                current_group.append(item)
+                continue
+
+            if current_group:
+                groups.append("\n\n".join(current_group).strip())
+                current_group = []
+
+            if self._fits_context(system_prompt, user_prefix, item, response_tokens):
+                current_group.append(item)
+                continue
+
+            raise APIError(
+                code="SUMMARY_INPUT_TOO_LARGE",
+                message="Transcript is too large for the configured summary model context window.",
+                status_code=422,
+            )
+
+        if current_group:
+            groups.append("\n\n".join(current_group).strip())
+        return groups
