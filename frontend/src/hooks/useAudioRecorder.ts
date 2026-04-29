@@ -6,6 +6,10 @@ import { deriveRecordingBaseName } from '../services/recording-name';
 export type RecordingStatus = 'idle' | 'recording' | 'stopped';
 export type CaptureMode = 'microphone' | 'microphone_system';
 export type RecordingTrigger = 'manual' | 'auto';
+type StartRecordingRequest = {
+  trigger: RecordingTrigger;
+  windowTitle: string | null;
+};
 
 const RECORDER_MIME_CANDIDATES = [
   'audio/mpeg',
@@ -44,7 +48,7 @@ interface UseAudioRecorderResult {
   error: string | null;
   setCaptureMode: (mode: CaptureMode) => void;
   setAutoTeamsRecordEnabled: (enabled: boolean) => void;
-  startRecording: (trigger?: RecordingTrigger) => Promise<void>;
+  startRecording: (trigger?: RecordingTrigger, requestedWindowTitle?: string | null) => Promise<void>;
   stopRecording: () => void;
   resetRecording: () => void;
 }
@@ -62,10 +66,11 @@ export function useAudioRecorder(): UseAudioRecorderResult {
   );
   const [autoTeamsRecordEnabled, setAutoTeamsRecordEnabledState] = useState<boolean>(() => {
     if (typeof window === 'undefined') {
-      return false;
+      return true;
     }
 
-    return window.localStorage.getItem(AUTO_TEAMS_RECORD_STORAGE_KEY) === 'true';
+    const stored = window.localStorage.getItem(AUTO_TEAMS_RECORD_STORAGE_KEY);
+    return stored === null ? true : stored === 'true';
   });
 
   const recorderRef = useRef<MediaRecorder | null>(null);
@@ -84,6 +89,9 @@ export function useAudioRecorder(): UseAudioRecorderResult {
   const recordingTriggerRef = useRef<RecordingTrigger | null>(null);
   const previousTeamsCallDetectedRef = useRef(callDetected);
   const previousAutoTeamsRecordEnabledRef = useRef(autoTeamsRecordEnabled);
+  const requestedAutoRecordTitleRef = useRef<string | null>(null);
+  const pendingStartRequestRef = useRef<StartRecordingRequest | null>(null);
+  const stoppingForRestartRef = useRef(false);
 
   const isSupported = useMemo(() => {
     return typeof window !== 'undefined' && 'MediaRecorder' in window;
@@ -124,6 +132,9 @@ export function useAudioRecorder(): UseAudioRecorderResult {
     recordingWindowTitleRef.current = null;
     recordingStartedAtRef.current = null;
     recordingTriggerRef.current = null;
+    requestedAutoRecordTitleRef.current = null;
+    pendingStartRequestRef.current = null;
+    stoppingForRestartRef.current = false;
     setStatus('idle');
     setAudioBlob(null);
     setDurationSeconds(0);
@@ -139,132 +150,147 @@ export function useAudioRecorder(): UseAudioRecorderResult {
     }
   }, [audioUrl, clearTimer, stopStream]);
 
-  const startRecording = useCallback(async (trigger: RecordingTrigger = 'manual') => {
-    if (!isSupported) {
-      setError('Recording is not supported in this browser.');
-      return;
-    }
-
-    if (status === 'recording') {
-      return;
-    }
-
-    try {
-      autoRecordingRef.current = trigger === 'auto';
-      recordingWindowTitleRef.current = matchedWindowTitle;
-      recordingStartedAtRef.current = new Date().toISOString();
-      recordingTriggerRef.current = trigger;
-      setRecordingBaseName(deriveRecordingBaseName(matchedWindowTitle));
-      setActiveRecordingTrigger(trigger);
-      setError(null);
-      setDurationSeconds(0);
-      chunksRef.current = [];
-
-      const micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      micStreamRef.current = micStream;
-
-      let recordingStream = micStream;
-      if (captureMode === 'microphone_system') {
-        if (!supportsSystemAudio) {
-          throw new Error('System audio capture is not supported in this environment.');
+  const startRecording = useCallback(
+    async (trigger: RecordingTrigger = 'manual', requestedWindowTitle: string | null = null) => {
+      if (!isSupported) {
+        setError('Recording is not supported in this browser.');
+        return;
+      }
+      const activeRecorder = recorderRef.current;
+      const hasActiveRecorder = activeRecorder !== null && activeRecorder.state !== 'inactive';
+      if (status === 'recording' || hasActiveRecorder) {
+        pendingStartRequestRef.current = {
+          trigger,
+          windowTitle: requestedWindowTitle ?? matchedWindowTitle ?? null,
+        };
+        if (hasActiveRecorder && !stoppingForRestartRef.current) {
+          stoppingForRestartRef.current = true;
+          activeRecorder.stop();
         }
-
-        const systemAudioStream = await getSystemAudioStream();
-        systemStreamRef.current = systemAudioStream;
-
-        const systemAudioTracks = systemAudioStream.getAudioTracks();
-        systemAudioStream.getVideoTracks().forEach((track) => track.stop());
-        if (systemAudioTracks.length === 0) {
-          throw new Error('No system audio track found for selected source.');
-        }
-
-        const audioContext = new AudioContext();
-        audioContextRef.current = audioContext;
-        const destination = audioContext.createMediaStreamDestination();
-
-        const micSource = audioContext.createMediaStreamSource(micStream);
-        micSource.connect(destination);
-
-        const systemAudioOnlyStream = new MediaStream(systemAudioTracks);
-        const systemSource = audioContext.createMediaStreamSource(systemAudioOnlyStream);
-        systemSource.connect(destination);
-
-        const mixedStream = destination.stream;
-        mixedStreamRef.current = mixedStream;
-        recordingStream = mixedStream;
+        return;
       }
 
-      recordingStreamRef.current = recordingStream;
+      try {
+        autoRecordingRef.current = trigger === 'auto';
+        const resolvedWindowTitle = requestedWindowTitle ?? matchedWindowTitle;
+        recordingWindowTitleRef.current = resolvedWindowTitle;
+        recordingStartedAtRef.current = new Date().toISOString();
+        recordingTriggerRef.current = trigger;
+        setRecordingBaseName(deriveRecordingBaseName(resolvedWindowTitle));
+        setActiveRecordingTrigger(trigger);
+        setError(null);
+        setDurationSeconds(0);
+        chunksRef.current = [];
 
-      const recorderMimeType = pickRecorderMimeType();
-      const recorder = recorderMimeType
-        ? new MediaRecorder(recordingStream, { mimeType: recorderMimeType })
-        : new MediaRecorder(recordingStream);
-      recorderRef.current = recorder;
+        const micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        micStreamRef.current = micStream;
 
-      recorder.addEventListener('dataavailable', (event) => {
-        if (event.data.size > 0) {
-          chunksRef.current.push(event.data);
+        let recordingStream = micStream;
+        if (captureMode === 'microphone_system') {
+          if (!supportsSystemAudio) {
+            throw new Error('System audio capture is not supported in this environment.');
+          }
+
+          const systemAudioStream = await getSystemAudioStream();
+          systemStreamRef.current = systemAudioStream;
+
+          const systemAudioTracks = systemAudioStream.getAudioTracks();
+          systemAudioStream.getVideoTracks().forEach((track) => track.stop());
+          if (systemAudioTracks.length === 0) {
+            throw new Error('No system audio track found for selected source.');
+          }
+
+          const audioContext = new AudioContext();
+          audioContextRef.current = audioContext;
+          const destination = audioContext.createMediaStreamDestination();
+
+          const micSource = audioContext.createMediaStreamSource(micStream);
+          micSource.connect(destination);
+
+          const systemAudioOnlyStream = new MediaStream(systemAudioTracks);
+          const systemSource = audioContext.createMediaStreamSource(systemAudioOnlyStream);
+          systemSource.connect(destination);
+
+          const mixedStream = destination.stream;
+          mixedStreamRef.current = mixedStream;
+          recordingStream = mixedStream;
         }
-      });
 
-      recorder.addEventListener('stop', () => {
-        autoRecordingRef.current = false;
-        const blob = new Blob(chunksRef.current, {
-          type: recorder.mimeType || recorderMimeType || DEFAULT_AUDIO_MIME,
+        recordingStreamRef.current = recordingStream;
+
+        const recorderMimeType = pickRecorderMimeType();
+        const recorder = recorderMimeType
+          ? new MediaRecorder(recordingStream, { mimeType: recorderMimeType })
+          : new MediaRecorder(recordingStream);
+        recorderRef.current = recorder;
+
+        recorder.addEventListener('dataavailable', (event) => {
+          if (event.data.size > 0) {
+            chunksRef.current.push(event.data);
+          }
         });
-        setAudioBlob(blob);
-        setRecordingBaseName(deriveRecordingBaseName(recordingWindowTitleRef.current));
 
-        if (audioUrl) {
-          URL.revokeObjectURL(audioUrl);
-        }
-        setAudioUrl(URL.createObjectURL(blob));
-        setStatus('stopped');
+        recorder.addEventListener('stop', () => {
+          autoRecordingRef.current = false;
+          stoppingForRestartRef.current = false;
+          const blob = new Blob(chunksRef.current, {
+            type: recorder.mimeType || recorderMimeType || DEFAULT_AUDIO_MIME,
+          });
+          setAudioBlob(blob);
+          setRecordingBaseName(deriveRecordingBaseName(recordingWindowTitleRef.current));
+
+          if (audioUrl) {
+            URL.revokeObjectURL(audioUrl);
+          }
+          setAudioUrl(URL.createObjectURL(blob));
+          setStatus('stopped');
+          recordingStartedAtRef.current = null;
+          recordingTriggerRef.current = null;
+          setActiveRecordingTrigger(null);
+          clearTimer();
+          stopStream();
+        });
+
+        recorder.start();
+        setStatus('recording');
+        timerRef.current = window.setInterval(() => {
+          setDurationSeconds((prev) => prev + 1);
+        }, 1000);
+      } catch (startError) {
+        autoRecordingRef.current = false;
+        stoppingForRestartRef.current = false;
+        recordingWindowTitleRef.current = null;
         recordingStartedAtRef.current = null;
         recordingTriggerRef.current = null;
+        setRecordingBaseName('recording');
         setActiveRecordingTrigger(null);
+        const message =
+          startError instanceof Error && startError.message
+            ? startError.message
+            : captureMode === 'microphone_system'
+              ? systemAudioBackend === 'electron'
+                ? 'Could not access microphone + system audio from Electron. Check app permissions.'
+                : 'Could not access microphone + system audio. Allow mic and screen-share audio.'
+              : 'Microphone permission denied or unavailable.';
+        setError(message);
+        setStatus('idle');
         clearTimer();
         stopStream();
-      });
-
-      recorder.start();
-      setStatus('recording');
-      timerRef.current = window.setInterval(() => {
-        setDurationSeconds((prev) => prev + 1);
-      }, 1000);
-    } catch (startError) {
-      autoRecordingRef.current = false;
-      recordingWindowTitleRef.current = null;
-      recordingStartedAtRef.current = null;
-      recordingTriggerRef.current = null;
-      setRecordingBaseName('recording');
-      setActiveRecordingTrigger(null);
-      const message =
-        startError instanceof Error && startError.message
-          ? startError.message
-          : captureMode === 'microphone_system'
-            ? systemAudioBackend === 'electron'
-              ? 'Could not access microphone + system audio from Electron. Check app permissions.'
-              : 'Could not access microphone + system audio. Allow mic and screen-share audio.'
-            : 'Microphone permission denied or unavailable.';
-      setError(message);
-      setStatus('idle');
-      clearTimer();
-      stopStream();
-    }
-  }, [
-    audioUrl,
-    captureMode,
-    clearTimer,
-    getSystemAudioStream,
-    isSupported,
-    matchedWindowTitle,
-    status,
-    stopStream,
-    supportsSystemAudio,
-    systemAudioBackend,
-  ]);
+      }
+    },
+    [
+      audioUrl,
+      captureMode,
+      clearTimer,
+      getSystemAudioStream,
+      isSupported,
+      matchedWindowTitle,
+      status,
+      stopStream,
+      supportsSystemAudio,
+      systemAudioBackend,
+    ]
+  );
 
   const stopRecording = useCallback(() => {
     if (recorderRef.current && recorderRef.current.state !== 'inactive') {
@@ -294,7 +320,9 @@ export function useAudioRecorder(): UseAudioRecorderResult {
       return;
     }
 
-    void window.electronAPI.setTeamsCallMonitorEnabled(autoTeamsRecordEnabled).catch(() => undefined);
+    void window.electronAPI
+      .setTeamsCallMonitorEnabled(autoTeamsRecordEnabled)
+      .catch(() => undefined);
   }, [autoTeamsRecordEnabled]);
 
   useEffect(() => {
@@ -313,6 +341,37 @@ export function useAudioRecorder(): UseAudioRecorderResult {
   }, [recordingBaseName, status]);
 
   useEffect(() => {
+    if (status !== 'stopped') {
+      return;
+    }
+
+    const pendingRequest = pendingStartRequestRef.current;
+    if (!pendingRequest) {
+      return;
+    }
+
+    pendingStartRequestRef.current = null;
+    void startRecording(pendingRequest.trigger, pendingRequest.windowTitle);
+  }, [startRecording, status]);
+
+  useEffect(() => {
+    if (!window.electronAPI?.onAutoRecordPromptAction) {
+      return;
+    }
+
+    return window.electronAPI.onAutoRecordPromptAction(({ action, title }) => {
+      if (action === 'dismiss') {
+        requestedAutoRecordTitleRef.current = title;
+        return;
+      }
+
+      if (action === 'confirm') {
+        void startRecording('auto', title);
+      }
+    });
+  }, [startRecording]);
+
+  useEffect(() => {
     const previousTeamsCallDetected = previousTeamsCallDetectedRef.current;
     const previousAutoTeamsRecordEnabled = previousAutoTeamsRecordEnabledRef.current;
 
@@ -320,7 +379,10 @@ export function useAudioRecorder(): UseAudioRecorderResult {
     previousAutoTeamsRecordEnabledRef.current = autoTeamsRecordEnabled;
 
     const canAutoRecord =
-      autoTeamsRecordEnabled && supported && supportsSystemAudio && captureMode === 'microphone_system';
+      autoTeamsRecordEnabled &&
+      supported &&
+      supportsSystemAudio &&
+      captureMode === 'microphone_system';
 
     if (
       canAutoRecord &&
@@ -328,18 +390,39 @@ export function useAudioRecorder(): UseAudioRecorderResult {
       status !== 'recording' &&
       (!previousTeamsCallDetected || !previousAutoTeamsRecordEnabled)
     ) {
-      void startRecording('auto');
+      const currentTitle = matchedWindowTitle?.trim() ?? '';
+      if (!currentTitle) {
+        return;
+      }
+
+      if (requestedAutoRecordTitleRef.current === currentTitle) {
+        return;
+      }
+
+      requestedAutoRecordTitleRef.current = currentTitle;
+      void window.electronAPI?.requestAutoRecordPrompt?.(currentTitle).catch(() => {
+        requestedAutoRecordTitleRef.current = null;
+      });
       return;
     }
 
-    if (previousTeamsCallDetected && !callDetected && status === 'recording' && autoRecordingRef.current) {
+    if (
+      previousTeamsCallDetected &&
+      !callDetected &&
+      status === 'recording' &&
+      autoRecordingRef.current
+    ) {
       stopRecording();
+    }
+
+    if (!callDetected) {
+      requestedAutoRecordTitleRef.current = null;
     }
   }, [
     autoTeamsRecordEnabled,
     callDetected,
     captureMode,
-    startRecording,
+    matchedWindowTitle,
     status,
     stopRecording,
     supported,

@@ -1,11 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
+import Markdown from 'react-markdown';
 import type { Transcription } from '../types/api';
 
 interface TranscriptionViewProps {
   transcription: Transcription | null;
   isLoading?: boolean;
   isSaving?: boolean;
+  isSummarizing?: boolean;
   onSave: (id: string, title: string, text: string) => Promise<void>;
+  onGenerateSummary: (id: string, customPrompt?: string) => Promise<void>;
 }
 
 function formatTimestamp(value: string): string {
@@ -20,9 +23,12 @@ export default function TranscriptionView({
   transcription,
   isLoading = false,
   isSaving = false,
+  isSummarizing = false,
   onSave,
+  onGenerateSummary,
 }: TranscriptionViewProps) {
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle');
+  const [summaryCopyState, setSummaryCopyState] = useState<'idle' | 'copied' | 'failed'>('idle');
   const [draftTitle, setDraftTitle] = useState('');
   const [draftText, setDraftText] = useState('');
 
@@ -35,6 +41,10 @@ export default function TranscriptionView({
     }
     return draftTitle.trim() !== transcription.title || draftText !== transcription.text;
   }, [draftText, draftTitle, transcription]);
+  const summaryText = useMemo(() => {
+    return transcription?.summary_text?.trim() ?? '';
+  }, [transcription]);
+  const hasSummary = summaryText.length > 0;
 
   useEffect(() => {
     if (!transcription) {
@@ -60,11 +70,32 @@ export default function TranscriptionView({
     }
   };
 
+  const handleCopySummary = async () => {
+    if (!hasSummary) {
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(summaryText);
+      setSummaryCopyState('copied');
+      window.setTimeout(() => setSummaryCopyState('idle'), 1400);
+    } catch {
+      setSummaryCopyState('failed');
+    }
+  };
+
   const handleSave = async () => {
     if (!transcription) {
       return;
     }
     await onSave(transcription.id, draftTitle.trim(), draftText.trim());
+  };
+
+  const handleGenerateSummary = async () => {
+    if (!transcription) {
+      return;
+    }
+    await onGenerateSummary(transcription.id);
   };
 
   return (
@@ -122,14 +153,84 @@ export default function TranscriptionView({
               className="btn btn--primary"
               type="button"
               onClick={() => void handleSave()}
-              disabled={!isDirty || isSaving || draftTitle.trim().length === 0 || draftText.trim().length === 0}
+              disabled={
+                !isDirty ||
+                isSaving ||
+                draftTitle.trim().length === 0 ||
+                draftText.trim().length === 0
+              }
             >
               {isSaving ? 'Saving...' : 'Save edits'}
             </button>
           </div>
 
+          <section className="summary-section" aria-live="polite">
+            <div className="module__head summary-section__head">
+              <h3>Meeting Summary</h3>
+              {hasSummary && (
+                <span className="summary-indicator summary-indicator--inline">Summary ready</span>
+              )}
+            </div>
+
+            {isSummarizing && (
+              <div className="summary-loading">
+                <span className="spinner" />
+                <span>Generating summary...</span>
+              </div>
+            )}
+
+            {hasSummary ? (
+              <div className="summary-body">
+                <Markdown>{summaryText}</Markdown>
+              </div>
+            ) : (
+              !isSummarizing && (
+                <p className="placeholder-text placeholder-text--summary">
+                  Generate a structured meeting summary from this transcript.
+                </p>
+              )
+            )}
+
+            <div className="summary-actions">
+              {hasSummary ? (
+                <>
+                  <button
+                    className="btn btn--primary"
+                    type="button"
+                    onClick={() => void handleGenerateSummary()}
+                    disabled={isSummarizing}
+                  >
+                    {isSummarizing ? 'Regenerating...' : 'Regenerate Summary'}
+                  </button>
+                  <button
+                    className="btn btn--ghost"
+                    type="button"
+                    onClick={() => void handleCopySummary()}
+                    disabled={!hasSummary || isSummarizing}
+                  >
+                    {summaryCopyState === 'copied' ? 'Summary copied' : 'Copy Summary'}
+                  </button>
+                </>
+              ) : (
+                <button
+                  className="btn btn--primary"
+                  type="button"
+                  onClick={() => void handleGenerateSummary()}
+                  disabled={isSummarizing}
+                >
+                  {isSummarizing ? 'Generating...' : 'Generate Summary'}
+                </button>
+              )}
+            </div>
+          </section>
+
           {copyState === 'failed' && (
             <p className="error-text">Could not copy to clipboard in this browser context.</p>
+          )}
+          {summaryCopyState === 'failed' && (
+            <p className="error-text">
+              Could not copy summary to clipboard in this browser context.
+            </p>
           )}
         </>
       )}

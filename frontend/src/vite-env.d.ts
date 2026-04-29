@@ -25,6 +25,15 @@ type ElectronRecorderRuntimeStatus = {
   trigger: 'manual' | 'auto' | null;
   updatedAt: string | null;
 };
+type ElectronAutoRecordPromptState = {
+  visible: boolean;
+  title: string | null;
+  updatedAt: string | null;
+};
+type ElectronAutoRecordPromptAction = 'confirm' | 'dismiss';
+type ElectronAutoRecordPromptRequestResult = {
+  status: 'shown' | 'ignored' | 'already-open';
+};
 
 interface ElectronAPI {
   getAudioSources: () => Promise<ElectronAudioSource[]>;
@@ -32,6 +41,17 @@ interface ElectronAPI {
   restartBackend: () => Promise<ElectronBackendStatus>;
   getTeamsCallMonitorStatus: () => Promise<ElectronTeamsCallMonitorStatus>;
   setTeamsCallMonitorEnabled: (enabled: boolean) => Promise<void>;
+  getTeamsIgnoreList: () => Promise<string[]>;
+  addToTeamsIgnoreList: (title: string) => Promise<string[]>;
+  getAutoRecordPromptState: () => Promise<ElectronAutoRecordPromptState>;
+  requestAutoRecordPrompt: (title: string) => Promise<ElectronAutoRecordPromptRequestResult>;
+  respondToAutoRecordPrompt: (action: ElectronAutoRecordPromptAction) => Promise<void>;
+  onAutoRecordPromptStateChanged: (
+    listener: (state: ElectronAutoRecordPromptState) => void
+  ) => () => void;
+  onAutoRecordPromptAction: (
+    listener: (payload: { action: ElectronAutoRecordPromptAction; title: string }) => void
+  ) => () => void;
   onTeamsCallMonitorStatusChanged: (
     listener: (status: ElectronTeamsCallMonitorStatus) => void
   ) => () => void;

@@ -1,6 +1,6 @@
 ﻿# Plan: VoxVault — Electron Audio Transcription Application
 
-A desktop application (Electron + React) with Python/FastAPI backend that captures system audio and microphone, backs up recordings locally, transcribes via Chutes.ai Whisper, and displays results.
+A desktop application (Electron + React) with Python/FastAPI backend that captures system audio and microphone, backs up recordings locally, transcribes primarily with local Whisper Small on CPU, falls back to Chutes when needed, and displays results.
 
 ## Architecture Overview
 
@@ -29,12 +29,12 @@ A desktop application (Electron + React) with Python/FastAPI backend that captur
 │  │ API Routes: /upload, /transcriptions, /audio/{id}, /health   │ │
 │  └───────────────────────────────────────────────────────────────┘ │
 │  ┌────────────────┐  ┌────────────────┐  ┌─────────────────────┐   │
-│  │ Audio Backup   │  │ Format Convert │  │ Chutes.ai Client    │   │
-│  │ (Local FS)     │  │ (FFmpeg)       │  │ (Whisper API)       │   │
+│  │ Audio Backup   │  │ Format Convert │  │ Local Whisper Small │   │
+│  │ (Local FS)     │  │ (FFmpeg)       │  │ + Chutes Fallback   │   │
 │  └────────────────┘  └────────────────┘  └─────────────────────┘   │
 │           │                                       │                 │
 │           ▼                                       ▼                 │
-│   ./backups/*.wav                    https://xxx.chutes.ai          │
+│   ./backups/*.wav                    ./backend/.model-cache         │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -50,7 +50,7 @@ Browser-based web apps cannot capture system audio (security sandbox). Since the
 
 | Stream | Scope | Primary Owner | Secondary Owner |
 |---|---|---|---|
-| `S1-Backend` | FastAPI API, audio processing, storage, Chutes.ai integration | Backend Lead | Architect |
+| `S1-Backend` | FastAPI API, audio processing, storage, local Whisper integration, Chutes fallback | Backend Lead | Architect |
 | `S2-Electron` | Electron main/renderer, system audio capture, React UI, IPC | Frontend Lead | Architect |
 | `S3-Integration` | Contract governance, E2E validation, packaging, release gate | Architect | QA Owner |
 
@@ -96,7 +96,9 @@ backend/
 │   │   │   └── audio.py           # /upload, /audio/{id}
 │   │   └── deps.py
 │   ├── services/
-│   │   ├── chutes_client.py       # Chutes.ai Whisper API wrapper
+│   │   ├── local_whisper_client.py # Local Whisper Small wrapper
+│   │   ├── chutes_client.py       # Chutes.ai fallback wrapper
+│   │   ├── transcription_provider.py # Provider orchestration
 │   │   ├── audio_processor.py     # FFmpeg conversion
 │   │   └── backup_service.py      # Local file storage
 │   ├── models/

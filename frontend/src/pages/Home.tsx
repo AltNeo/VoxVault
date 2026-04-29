@@ -5,6 +5,7 @@ import ProviderStatusIndicator from '../components/ProviderStatusIndicator';
 import TranscriptionHistory from '../components/TranscriptionHistory';
 import TranscriptionView from '../components/TranscriptionView';
 import { useTranscription } from '../hooks/useTranscription';
+import api from '../services/api';
 import type { TranscriptionSource } from '../types/api';
 
 interface PendingAudio {
@@ -29,6 +30,7 @@ export default function Home() {
     isPromptLoading,
     isPromptSaving,
     isSavingEdits,
+    isSummarizing,
     error,
     uploadAudio,
     loadTranscriptionPrompt,
@@ -36,6 +38,7 @@ export default function Home() {
     saveTranscriptionEdits,
     loadHistory,
     selectTranscription,
+    generateSummary,
   } = useTranscription();
 
   const [pendingAudio, setPendingAudio] = useState<PendingAudio | null>(null);
@@ -44,16 +47,43 @@ export default function Home() {
   const [promptSectionOpen, setPromptSectionOpen] = useState(false);
   const [promptDraft, setPromptDraft] = useState('');
   const [promptStatus, setPromptStatus] = useState<string | null>(null);
+  const [summaryPromptSectionOpen, setSummaryPromptSectionOpen] = useState(false);
+  const [summaryPrompt, setSummaryPrompt] = useState('');
+  const [summaryPromptDraft, setSummaryPromptDraft] = useState('');
+  const [summaryPromptStatus, setSummaryPromptStatus] = useState<string | null>(null);
+  const [isSummaryPromptLoading, setIsSummaryPromptLoading] = useState(false);
+  const [isSummaryPromptSaving, setIsSummaryPromptSaving] = useState(false);
   const autoSubmittedPreviewRef = useRef<string | null>(null);
+
+  const loadSummaryPrompt = useCallback(async () => {
+    setIsSummaryPromptLoading(true);
+    try {
+      const result = await api.getSummaryPrompt();
+      setSummaryPrompt(result.custom_prompt);
+      setSummaryPromptDraft(result.custom_prompt);
+      setSummaryPromptStatus(null);
+    } catch (loadError) {
+      const message =
+        loadError instanceof Error ? loadError.message : 'Failed to load summary prompt.';
+      setSummaryPromptStatus(message);
+    } finally {
+      setIsSummaryPromptLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
     void loadHistory();
     void loadTranscriptionPrompt();
-  }, [loadHistory, loadTranscriptionPrompt]);
+    void loadSummaryPrompt();
+  }, [loadHistory, loadSummaryPrompt, loadTranscriptionPrompt]);
 
   useEffect(() => {
     setPromptDraft(transcriptionPrompt);
   }, [transcriptionPrompt]);
+
+  useEffect(() => {
+    setSummaryPromptDraft(summaryPrompt);
+  }, [summaryPrompt]);
 
   const setPending = useCallback((file: File, previewUrl: string, source: TranscriptionSource) => {
     setPendingAudio((current) => {
@@ -135,12 +165,46 @@ export default function Home() {
     setPromptStatus('Prompt updated.');
   }, [promptDraft, saveTranscriptionPrompt]);
 
+  const handleSummaryPromptToggle = useCallback(() => {
+    setSummaryPromptSectionOpen((current) => {
+      const next = !current;
+      if (next) {
+        void loadSummaryPrompt();
+      }
+      return next;
+    });
+  }, [loadSummaryPrompt]);
+
+  const handleSummaryPromptSave = useCallback(async () => {
+    setIsSummaryPromptSaving(true);
+    try {
+      const result = await api.updateSummaryPrompt(summaryPromptDraft);
+      setSummaryPrompt(result.custom_prompt);
+      setSummaryPromptDraft(result.custom_prompt);
+      setSummaryPromptStatus('Summary prompt updated.');
+    } catch (saveError) {
+      const message =
+        saveError instanceof Error ? saveError.message : 'Failed to update summary prompt.';
+      setSummaryPromptStatus(message);
+    } finally {
+      setIsSummaryPromptSaving(false);
+    }
+  }, [summaryPromptDraft]);
+
   const handleSelectHistory = useCallback(
     async (id: string) => {
       await selectTranscription(id);
       setHistoryOpen(false);
     },
     [selectTranscription]
+  );
+
+  const handleGenerateSummary = useCallback(
+    async (id: string, customPrompt?: string) => {
+      await generateSummary(id, customPrompt);
+      await loadHistory();
+    },
+    [generateSummary, loadHistory]
   );
 
   const playerSource = useMemo(() => {
@@ -175,6 +239,16 @@ export default function Home() {
           >
             <span className="history-toggle__icon">
               {promptSectionOpen ? 'Hide Misspellings' : 'Known Misspellings'}
+            </span>
+          </button>
+          <button
+            type="button"
+            className={`history-toggle ${summaryPromptSectionOpen ? 'history-toggle--active' : ''}`}
+            onClick={handleSummaryPromptToggle}
+            aria-label="Toggle summary prompt"
+          >
+            <span className="history-toggle__icon">
+              {summaryPromptSectionOpen ? 'Hide Summary' : 'Summary Prompt'}
             </span>
           </button>
           <button
@@ -228,6 +302,51 @@ export default function Home() {
               </button>
             </div>
             {promptStatus && <span className="prompt-toolbar__status">{promptStatus}</span>}
+          </div>
+        )}
+
+        {summaryPromptSectionOpen && (
+          <div className="prompt-popover prompt-popover--summary">
+            <label className="field-block__label" htmlFor="summary-prompt">
+              Summary Prompt
+            </label>
+            <textarea
+              id="summary-prompt"
+              className="transcription-body prompt-panel__input"
+              value={summaryPromptDraft}
+              onChange={(event) => {
+                setSummaryPromptDraft(event.target.value);
+                if (summaryPromptStatus) {
+                  setSummaryPromptStatus(null);
+                }
+              }}
+              placeholder="You are a meeting summarizer. Given a transcript, produce key topics, decisions, action items, and a brief summary."
+              disabled={isSummaryPromptLoading || isSummaryPromptSaving}
+            />
+            <p className="muted muted--hint">
+              This prompt shapes the summary model&apos;s output for every generated summary.
+            </p>
+            <div className="button-row">
+              <button
+                type="button"
+                className="btn btn--primary"
+                onClick={() => void handleSummaryPromptSave()}
+                disabled={isSummaryPromptLoading || isSummaryPromptSaving}
+              >
+                {isSummaryPromptSaving ? 'Saving...' : 'Save Prompt'}
+              </button>
+              <button
+                type="button"
+                className="btn btn--ghost"
+                onClick={() => setSummaryPromptDraft(summaryPrompt)}
+                disabled={isSummaryPromptLoading || isSummaryPromptSaving}
+              >
+                Reset
+              </button>
+            </div>
+            {summaryPromptStatus && (
+              <span className="prompt-toolbar__status">{summaryPromptStatus}</span>
+            )}
           </div>
         )}
       </header>
@@ -305,7 +424,6 @@ export default function Home() {
                 </>
               )}
             </button>
-
           </div>
         </section>
 
@@ -315,9 +433,11 @@ export default function Home() {
               transcription={activeTranscription}
               isLoading={isLoading}
               isSaving={isSavingEdits}
+              isSummarizing={isSummarizing}
               onSave={async (id, title, text) => {
                 await saveTranscriptionEdits(id, title, text);
               }}
+              onGenerateSummary={handleGenerateSummary}
             />
           </div>
         </section>

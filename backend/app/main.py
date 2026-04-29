@@ -18,6 +18,9 @@ from app.db.storage import TranscriptionStorage
 from app.services.audio_processor import AudioProcessor
 from app.services.backup_service import BackupService
 from app.services.chutes_client import ChutesClient
+from app.services.local_whisper_client import LocalWhisperClient
+from app.services.summary_service import SummaryService
+from app.services.transcription_provider import TranscriptionProvider
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -31,6 +34,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         services.storage.initialize()
         services.backup_service.backup_dir.mkdir(parents=True, exist_ok=True)
         resolved_settings.diagnostics_log_path.parent.mkdir(parents=True, exist_ok=True)
+        resolved_settings.local_transcription_download_root.mkdir(parents=True, exist_ok=True)
+        try:
+            await services.transcription_provider.warmup()
+        except APIError:
+            transaction_logger.exception("local.whisper.warmup_failed")
+        try:
+            await services.summary_service.warmup()
+        except Exception:
+            transaction_logger.exception("summary.model.warmup_failed")
         yield
 
     app = FastAPI(
@@ -40,16 +52,27 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     app.state.transaction_logger = transaction_logger
 
+    chutes_client = ChutesClient(
+        api_url=resolved_settings.chutes_api_url,
+        api_key=resolved_settings.chutes_api_key,
+        timeout_seconds=resolved_settings.request_timeout_seconds,
+        storage=storage,
+    )
     app.state.services = AppServices(
         settings=resolved_settings,
         storage=storage,
         backup_service=BackupService(resolved_settings.backup_dir),
         audio_processor=AudioProcessor(),
-        chutes_client=ChutesClient(
-            api_url=resolved_settings.chutes_api_url,
-            api_key=resolved_settings.chutes_api_key,
-            timeout_seconds=resolved_settings.request_timeout_seconds,
-            storage=storage,
+        summary_service=SummaryService(resolved_settings),
+        transcription_provider=TranscriptionProvider(
+            local_client=LocalWhisperClient(
+                enabled=resolved_settings.local_transcription_enabled,
+                model_size=resolved_settings.local_transcription_model_size,
+                device=resolved_settings.local_transcription_device,
+                compute_type=resolved_settings.local_transcription_compute_type,
+                download_root=resolved_settings.local_transcription_download_root,
+            ),
+            chutes_client=chutes_client,
         ),
     )
 

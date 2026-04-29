@@ -36,6 +36,7 @@ export interface TranscriptionSummary {
   duration_seconds: number | null;
   status: TranscriptionStatus;
   text: string;
+  summary_text: string | null;
   created_at: string;
   audio_url: string;
 }
@@ -82,4 +83,19 @@ export interface ListTranscriptionsInput {
 
 export interface TranscriptionPromptResponse {
   custom_prompt: string;
+}
+
+export interface SummaryResponse {
+  id: string;
+  summary_text: string;
+}
+
+export interface SummaryPromptResponse {
+  custom_prompt: string;
+}
+
+export interface SummaryModelHealthResponse {
+  ready: boolean;
+  model_name: string | null;
+  detail: string | null;
 }

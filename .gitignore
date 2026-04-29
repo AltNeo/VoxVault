@@ -8,6 +8,8 @@ ENV/
 .env
 .pytest_cache/
 .ruff_cache/
+bench/
+backups/
 
 # --- Web / Frontend ---
 node_modules/
@@ -27,5 +29,7 @@ build/
 *.sqlite3
 backend/backups/*
 !backend/backups/.gitkeep
+backend/.model-cache/
+backend/.tmp*/
 .vscode/
 .idea/

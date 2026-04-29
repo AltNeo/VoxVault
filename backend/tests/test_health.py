@@ -29,3 +29,13 @@ def test_provider_transcription_metrics_initial_state(client) -> None:
     assert body["average_audio_mb"] == 0
     assert body["average_ms_per_mb"] == 0
     assert body["recent_samples"] == []
+
+
+def test_summary_model_health_not_configured(client) -> None:
+    response = client.get("/api/health/summary-model")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["ready"] is True
+    assert body["model_name"] == "extractive-fallback"
+    assert "fallback" in body["detail"].lower()
