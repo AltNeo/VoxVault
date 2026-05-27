@@ -26,6 +26,7 @@ let mainWindow: BrowserWindow | null = null;
 let autoRecordPromptWindow: BrowserWindow | null = null;
 let autoRecordPromptState: AutoRecordPromptState = {
   visible: false,
+  kind: 'start',
   title: null,
   updatedAt: null,
 };
@@ -165,6 +166,7 @@ function createAutoRecordPromptWindow(): BrowserWindow {
     if (autoRecordPromptState.visible) {
       autoRecordPromptState = {
         visible: false,
+        kind: 'start',
         title: null,
         updatedAt: autoRecordPromptState.updatedAt,
       };
@@ -187,6 +189,7 @@ async function requestAutoRecordPrompt(title: string): Promise<AutoRecordPromptR
 
   autoRecordPromptState = {
     visible: true,
+    kind: 'start',
     title: normalizedTitle,
     updatedAt: new Date().toISOString(),
   };
@@ -204,20 +207,42 @@ async function requestAutoRecordPrompt(title: string): Promise<AutoRecordPromptR
   return { status: 'shown' };
 }
 
+async function requestStopRecordPrompt(): Promise<AutoRecordPromptRequestResult> {
+  autoRecordPromptState = {
+    visible: true,
+    kind: 'stop',
+    title: recorderRuntimeStatus.baseName,
+    updatedAt: new Date().toISOString(),
+  };
+  broadcastAutoRecordPromptState();
+
+  if (autoRecordPromptWindow && !autoRecordPromptWindow.isDestroyed()) {
+    autoRecordPromptWindow.show();
+    autoRecordPromptWindow.focus();
+    autoRecordPromptWindow.moveTop();
+    autoRecordPromptWindow.flashFrame(true);
+    return { status: 'already-open' };
+  }
+
+  autoRecordPromptWindow = createAutoRecordPromptWindow();
+  return { status: 'shown' };
+}
+
 async function respondToAutoRecordPrompt(action: AutoRecordPromptAction): Promise<void> {
-  const title = autoRecordPromptState.title?.trim();
-  if (!title) {
+  const title = autoRecordPromptState.title?.trim() ?? '';
+  if (autoRecordPromptState.kind === 'start' && !title) {
     closeAutoRecordPromptWindow();
     return;
   }
 
-  if (action === 'dismiss') {
+  if (autoRecordPromptState.kind === 'start' && action === 'dismiss') {
     teamsIgnoreList.addToIgnoreList(title);
   }
 
   emitAutoRecordPromptAction(action, title);
   autoRecordPromptState = {
     visible: false,
+    kind: 'start',
     title: null,
     updatedAt: new Date().toISOString(),
   };
@@ -237,6 +262,7 @@ app.whenReady().then(() => {
     addToTeamsIgnoreList: teamsIgnoreList.addToIgnoreList,
     getAutoRecordPromptState: () => autoRecordPromptState,
     requestAutoRecordPrompt,
+    requestStopRecordPrompt,
     respondToAutoRecordPrompt,
     getRecorderRuntimeStatus: () => recorderRuntimeStatus,
     setRecorderRuntimeStatus,
@@ -266,6 +292,7 @@ app.on('window-all-closed', () => {
 app.on('before-quit', async () => {
   autoRecordPromptState = {
     visible: false,
+    kind: 'start',
     title: null,
     updatedAt: new Date().toISOString(),
   };

@@ -13,6 +13,7 @@ export type RecorderRuntimeStatus = {
 
 export type AutoRecordPromptState = {
   visible: boolean;
+  kind: 'start' | 'stop';
   title: string | null;
   updatedAt: string | null;
 };
@@ -39,6 +40,7 @@ const GET_TEAMS_IGNORE_LIST_CHANNEL = 'get-teams-ignore-list';
 const ADD_TO_TEAMS_IGNORE_LIST_CHANNEL = 'add-to-teams-ignore-list';
 const GET_AUTO_RECORD_PROMPT_STATE_CHANNEL = 'get-auto-record-prompt-state';
 const REQUEST_AUTO_RECORD_PROMPT_CHANNEL = 'request-auto-record-prompt';
+const REQUEST_STOP_RECORD_PROMPT_CHANNEL = 'request-stop-record-prompt';
 const RESPOND_TO_AUTO_RECORD_PROMPT_CHANNEL = 'respond-to-auto-record-prompt';
 const AUTO_RECORD_PROMPT_STATE_CHANGED_CHANNEL = 'auto-record-prompt-state-changed';
 const AUTO_RECORD_PROMPT_ACTION_CHANNEL = 'auto-record-prompt-action';
@@ -54,6 +56,7 @@ type RegisterIpcHandlersOptions = {
   addToTeamsIgnoreList: (title: string) => string[];
   getAutoRecordPromptState: () => AutoRecordPromptState;
   requestAutoRecordPrompt: (title: string) => Promise<AutoRecordPromptRequestResult>;
+  requestStopRecordPrompt: () => Promise<AutoRecordPromptRequestResult>;
   respondToAutoRecordPrompt: (action: AutoRecordPromptAction) => Promise<void>;
   getRecorderRuntimeStatus: () => RecorderRuntimeStatus;
   setRecorderRuntimeStatus: (
@@ -72,6 +75,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions): void {
   ipcMain.removeHandler(ADD_TO_TEAMS_IGNORE_LIST_CHANNEL);
   ipcMain.removeHandler(GET_AUTO_RECORD_PROMPT_STATE_CHANNEL);
   ipcMain.removeHandler(REQUEST_AUTO_RECORD_PROMPT_CHANNEL);
+  ipcMain.removeHandler(REQUEST_STOP_RECORD_PROMPT_CHANNEL);
   ipcMain.removeHandler(RESPOND_TO_AUTO_RECORD_PROMPT_CHANNEL);
   ipcMain.removeHandler(GET_RECORDER_RUNTIME_STATUS_CHANNEL);
   ipcMain.removeHandler(SET_RECORDER_RUNTIME_STATUS_CHANNEL);
@@ -132,6 +136,10 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions): void {
       return options.requestAutoRecordPrompt(title);
     }
   );
+
+  ipcMain.handle(REQUEST_STOP_RECORD_PROMPT_CHANNEL, async (): Promise<AutoRecordPromptRequestResult> => {
+    return options.requestStopRecordPrompt();
+  });
 
   ipcMain.handle(
     RESPOND_TO_AUTO_RECORD_PROMPT_CHANNEL,

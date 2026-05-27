@@ -27,6 +27,7 @@ type ElectronRecorderRuntimeStatus = {
 };
 type ElectronAutoRecordPromptState = {
   visible: boolean;
+  kind: 'start' | 'stop';
   title: string | null;
   updatedAt: string | null;
 };
@@ -45,6 +46,7 @@ interface ElectronAPI {
   addToTeamsIgnoreList: (title: string) => Promise<string[]>;
   getAutoRecordPromptState: () => Promise<ElectronAutoRecordPromptState>;
   requestAutoRecordPrompt: (title: string) => Promise<ElectronAutoRecordPromptRequestResult>;
+  requestStopRecordPrompt: () => Promise<ElectronAutoRecordPromptRequestResult>;
   respondToAutoRecordPrompt: (action: ElectronAutoRecordPromptAction) => Promise<void>;
   onAutoRecordPromptStateChanged: (
     listener: (state: ElectronAutoRecordPromptState) => void

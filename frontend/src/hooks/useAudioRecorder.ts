@@ -49,7 +49,7 @@ interface UseAudioRecorderResult {
   setCaptureMode: (mode: CaptureMode) => void;
   setAutoTeamsRecordEnabled: (enabled: boolean) => void;
   startRecording: (trigger?: RecordingTrigger, requestedWindowTitle?: string | null) => Promise<void>;
-  stopRecording: () => void;
+  stopRecording: () => Promise<void>;
   resetRecording: () => void;
 }
 
@@ -92,6 +92,12 @@ export function useAudioRecorder(): UseAudioRecorderResult {
   const requestedAutoRecordTitleRef = useRef<string | null>(null);
   const pendingStartRequestRef = useRef<StartRecordingRequest | null>(null);
   const stoppingForRestartRef = useRef(false);
+
+  const stopRecordingNow = useCallback(() => {
+    if (recorderRef.current && recorderRef.current.state !== 'inactive') {
+      recorderRef.current.stop();
+    }
+  }, []);
 
   const isSupported = useMemo(() => {
     return typeof window !== 'undefined' && 'MediaRecorder' in window;
@@ -292,11 +298,16 @@ export function useAudioRecorder(): UseAudioRecorderResult {
     ]
   );
 
-  const stopRecording = useCallback(() => {
-    if (recorderRef.current && recorderRef.current.state !== 'inactive') {
-      recorderRef.current.stop();
+  const stopRecording = useCallback(async () => {
+    if (!recorderRef.current || recorderRef.current.state === 'inactive') {
+      return;
     }
-  }, []);
+
+    const promptResult = await window.electronAPI?.requestStopRecordPrompt?.().catch(() => null);
+    if (!promptResult) {
+      stopRecordingNow();
+    }
+  }, [stopRecordingNow]);
 
   useEffect(() => {
     if (!supportsSystemAudio && captureMode === 'microphone_system') {
@@ -361,7 +372,16 @@ export function useAudioRecorder(): UseAudioRecorderResult {
 
     return window.electronAPI.onAutoRecordPromptAction(({ action, title }) => {
       if (action === 'dismiss') {
+        if (status === 'recording') {
+          return;
+        }
+
         requestedAutoRecordTitleRef.current = title;
+        return;
+      }
+
+      if (status === 'recording') {
+        stopRecordingNow();
         return;
       }
 
@@ -369,7 +389,7 @@ export function useAudioRecorder(): UseAudioRecorderResult {
         void startRecording('auto', title);
       }
     });
-  }, [startRecording]);
+  }, [startRecording, status, stopRecordingNow]);
 
   useEffect(() => {
     const previousTeamsCallDetected = previousTeamsCallDetectedRef.current;
@@ -412,7 +432,7 @@ export function useAudioRecorder(): UseAudioRecorderResult {
       status === 'recording' &&
       autoRecordingRef.current
     ) {
-      stopRecording();
+      stopRecordingNow();
     }
 
     if (!callDetected) {
@@ -424,7 +444,7 @@ export function useAudioRecorder(): UseAudioRecorderResult {
     captureMode,
     matchedWindowTitle,
     status,
-    stopRecording,
+    stopRecordingNow,
     supported,
     supportsSystemAudio,
   ]);

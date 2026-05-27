@@ -27,6 +27,7 @@ type RecorderRuntimeStatus = {
 };
 type AutoRecordPromptState = {
   visible: boolean;
+  kind: 'start' | 'stop';
   title: string | null;
   updatedAt: string | null;
 };
@@ -45,6 +46,7 @@ const GET_TEAMS_IGNORE_LIST_CHANNEL = 'get-teams-ignore-list';
 const ADD_TO_TEAMS_IGNORE_LIST_CHANNEL = 'add-to-teams-ignore-list';
 const GET_AUTO_RECORD_PROMPT_STATE_CHANNEL = 'get-auto-record-prompt-state';
 const REQUEST_AUTO_RECORD_PROMPT_CHANNEL = 'request-auto-record-prompt';
+const REQUEST_STOP_RECORD_PROMPT_CHANNEL = 'request-stop-record-prompt';
 const RESPOND_TO_AUTO_RECORD_PROMPT_CHANNEL = 'respond-to-auto-record-prompt';
 const AUTO_RECORD_PROMPT_STATE_CHANGED_CHANNEL = 'auto-record-prompt-state-changed';
 const AUTO_RECORD_PROMPT_ACTION_CHANNEL = 'auto-record-prompt-action';
@@ -80,6 +82,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   requestAutoRecordPrompt: async (title: string): Promise<AutoRecordPromptRequestResult> => {
     return ipcRenderer.invoke(REQUEST_AUTO_RECORD_PROMPT_CHANNEL, title);
+  },
+  requestStopRecordPrompt: async (): Promise<AutoRecordPromptRequestResult> => {
+    return ipcRenderer.invoke(REQUEST_STOP_RECORD_PROMPT_CHANNEL);
   },
   respondToAutoRecordPrompt: async (action: AutoRecordPromptAction): Promise<void> => {
     return ipcRenderer.invoke(RESPOND_TO_AUTO_RECORD_PROMPT_CHANNEL, action);
