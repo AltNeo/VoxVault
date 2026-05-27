@@ -19,6 +19,7 @@ const RECORDER_MIME_CANDIDATES = [
 ] as const;
 const DEFAULT_AUDIO_MIME = 'audio/webm';
 const AUTO_TEAMS_RECORD_STORAGE_KEY = 'voxvault.autoTeamsRecordEnabled';
+const AUTO_STOP_CONFIRM_THRESHOLD_MS = 20 * 60 * 1000;
 
 function pickRecorderMimeType(): string | undefined {
   if (typeof window === 'undefined' || typeof MediaRecorder === 'undefined') {
@@ -49,7 +50,7 @@ interface UseAudioRecorderResult {
   setCaptureMode: (mode: CaptureMode) => void;
   setAutoTeamsRecordEnabled: (enabled: boolean) => void;
   startRecording: (trigger?: RecordingTrigger, requestedWindowTitle?: string | null) => Promise<void>;
-  stopRecording: () => Promise<void>;
+  stopRecording: () => void;
   resetRecording: () => void;
 }
 
@@ -298,7 +299,15 @@ export function useAudioRecorder(): UseAudioRecorderResult {
     ]
   );
 
-  const stopRecording = useCallback(async () => {
+  const stopRecording = useCallback(() => {
+    if (!recorderRef.current || recorderRef.current.state === 'inactive') {
+      return;
+    }
+
+    stopRecordingNow();
+  }, [stopRecordingNow]);
+
+  const requestStopRecordingConfirmation = useCallback(async () => {
     if (!recorderRef.current || recorderRef.current.state === 'inactive') {
       return;
     }
@@ -308,6 +317,24 @@ export function useAudioRecorder(): UseAudioRecorderResult {
       stopRecordingNow();
     }
   }, [stopRecordingNow]);
+
+  const shouldConfirmAutoStop = useCallback(() => {
+    if (!autoRecordingRef.current) {
+      return false;
+    }
+
+    const startedAt = recordingStartedAtRef.current;
+    if (!startedAt) {
+      return true;
+    }
+
+    const startedAtMs = Date.parse(startedAt);
+    if (Number.isNaN(startedAtMs)) {
+      return true;
+    }
+
+    return Date.now() - startedAtMs < AUTO_STOP_CONFIRM_THRESHOLD_MS;
+  }, []);
 
   useEffect(() => {
     if (!supportsSystemAudio && captureMode === 'microphone_system') {
@@ -432,7 +459,11 @@ export function useAudioRecorder(): UseAudioRecorderResult {
       status === 'recording' &&
       autoRecordingRef.current
     ) {
-      stopRecordingNow();
+      if (shouldConfirmAutoStop()) {
+        void requestStopRecordingConfirmation();
+      } else {
+        stopRecordingNow();
+      }
     }
 
     if (!callDetected) {
@@ -444,6 +475,9 @@ export function useAudioRecorder(): UseAudioRecorderResult {
     captureMode,
     matchedWindowTitle,
     status,
+    requestStopRecordingConfirmation,
+    shouldConfirmAutoStop,
+    stopRecording,
     stopRecordingNow,
     supported,
     supportsSystemAudio,
