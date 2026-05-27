@@ -4,6 +4,9 @@ export interface TeamsCallMonitorState {
   supported: boolean;
   callDetected: boolean;
   matchedWindowTitle: string | null;
+  sessionStartedAt: string | null;
+  lastSeenAt: string | null;
+  graceExpiresAt: string | null;
   updatedAt: string | null;
 }
 
@@ -11,6 +14,9 @@ const DEFAULT_STATE: TeamsCallMonitorState = {
   supported: false,
   callDetected: false,
   matchedWindowTitle: null,
+  sessionStartedAt: null,
+  lastSeenAt: null,
+  graceExpiresAt: null,
   updatedAt: null,
 };
 

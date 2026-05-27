@@ -19,6 +19,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const backend = createBackendProcessManager();
 const teamsCallMonitor = createTeamsCallMonitor();
+const STOP_PROMPT_CONTINUE_EXTENSION_MS = 20 * 60 * 1000;
 const teamsIgnoreList = createTeamsIgnoreList();
 const recorderStatusFilePath = path.join(app.getPath('userData'), 'recorder-runtime-status.json');
 
@@ -239,6 +240,10 @@ async function respondToAutoRecordPrompt(action: AutoRecordPromptAction): Promis
     teamsIgnoreList.addToIgnoreList(title);
   }
 
+  if (autoRecordPromptState.kind === 'stop' && action === 'dismiss') {
+    teamsCallMonitor.extendGracePeriod(STOP_PROMPT_CONTINUE_EXTENSION_MS);
+  }
+
   emitAutoRecordPromptAction(action, title);
   autoRecordPromptState = {
     visible: false,
@@ -271,6 +276,17 @@ app.whenReady().then(() => {
   teamsCallMonitor.start();
   void persistRecorderRuntimeStatus().catch(() => undefined);
   teamsCallMonitor.subscribe((status) => {
+    if (autoRecordPromptState.visible && autoRecordPromptState.kind === 'stop' && status.callDetected) {
+      autoRecordPromptState = {
+        visible: false,
+        kind: 'start',
+        title: null,
+        updatedAt: new Date().toISOString(),
+      };
+      broadcastAutoRecordPromptState();
+      closeAutoRecordPromptWindow();
+    }
+
     for (const window of BrowserWindow.getAllWindows()) {
       window.webContents.send('teams-call-monitor-status-changed', status);
     }

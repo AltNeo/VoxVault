@@ -16,6 +16,9 @@ type TeamsCallMonitorStatus = {
   supported: boolean;
   callDetected: boolean;
   matchedWindowTitle: string | null;
+  sessionStartedAt: string | null;
+  lastSeenAt: string | null;
+  graceExpiresAt: string | null;
   updatedAt: string | null;
 };
 type RecorderRuntimeStatus = {
