@@ -12,7 +12,7 @@ VoxVault is a desktop application that captures audio from your system (Teams, Z
 
 - 🎙️ **System Audio Capture** — Record any audio playing on your computer
 - 📁 **File Upload** — Drag & drop audio files (MP3, WAV, M4A, WebM)
-- ⚡ **AI Transcription** — Powered by Chutes API (Whisper-based)
+- 🎙️ **AI Transcription** — Powered by Gemini audio understanding with local Whisper fallback
 - 📝 **Edit & Save** — Refine transcriptions and persist them locally
 - 🕒 **History** — Browse and revisit past transcriptions
 
@@ -68,7 +68,7 @@ pip install -r requirements.txt
 Create `.env` in `/backend`:
 
 ```env
-CHUTES_API_TOKEN=your_api_token_here
+GEMINI_API_KEY=your_ai_studio_key_here
 ```
 
 Start the API:
@@ -149,7 +149,8 @@ voxvault/
 
 | Variable | Location | Description |
 |----------|----------|-------------|
-| `CHUTES_API_TOKEN` | `backend/.env` | API key for transcription service |
+| `GEMINI_API_KEY` / `GOOGLE_API_KEY` | `backend/.env` | Google AI Studio key for Gemini audio transcription |
+| `GEMINI_MODEL` | `backend/.env` | Gemini model used for audio transcription |
 | `ALLOWED_ORIGINS` | `backend/app/core/config.py` | CORS origins |
 | `MAX_UPLOAD_SIZE_MB` | `backend/app/core/config.py` | File size limit (default: 18MB) |
 
@@ -162,7 +163,7 @@ voxvault/
 | **Desktop Shell** | Electron |
 | **Frontend** | React, TypeScript, Vite |
 | **Backend** | Python, FastAPI |
-| **Transcription** | Chutes API (Whisper) |
+| **Transcription** | Gemini audio understanding with local faster-whisper fallback |
 | **Audio Processing** | FFmpeg, Web Audio API |
 | **Storage** | Local JSON (SQLite planned) |
 

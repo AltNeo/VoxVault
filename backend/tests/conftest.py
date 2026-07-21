@@ -24,6 +24,8 @@ def client(tmp_path):
         diagnostics_log_path=tmp_path / "diagnostics" / "transactions.log",
         local_transcription_enabled=False,
         summary_model_enabled=False,
+        GEMINI_API_KEY="",
+        GOOGLE_API_KEY="",
         chutes_api_url=None,
         chutes_api_key=None,
     )

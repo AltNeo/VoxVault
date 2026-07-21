@@ -18,6 +18,7 @@ from app.db.storage import TranscriptionStorage
 from app.services.audio_processor import AudioProcessor
 from app.services.backup_service import BackupService
 from app.services.chutes_client import ChutesClient
+from app.services.gemini_client import GeminiClient
 from app.services.local_whisper_client import LocalWhisperClient
 from app.services.summary_service import SummaryService
 from app.services.transcription_provider import TranscriptionProvider
@@ -65,6 +66,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         audio_processor=AudioProcessor(),
         summary_service=SummaryService(resolved_settings),
         transcription_provider=TranscriptionProvider(
+            google_client=GeminiClient(
+                api_key=resolved_settings.gemini_api_key,
+                model=resolved_settings.gemini_model,
+                timeout_seconds=resolved_settings.request_timeout_seconds,
+            ),
             local_client=LocalWhisperClient(
                 enabled=resolved_settings.local_transcription_enabled,
                 model_size=resolved_settings.local_transcription_model_size,

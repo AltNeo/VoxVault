@@ -36,6 +36,8 @@ class LocalWhisperClient:
     async def warmup(self) -> None:
         if not self.enabled:
             return
+        if self.is_ready():
+            return
         try:
             self._model = await asyncio.to_thread(self._load_model)
         except Exception as exc:
@@ -45,6 +47,10 @@ class LocalWhisperClient:
                 status_code=503,
                 details={"reason": str(exc)},
             ) from exc
+
+    async def ensure_ready(self) -> None:
+        if not self.is_ready():
+            await self.warmup()
 
     def _load_model(self) -> Any:
         from faster_whisper import WhisperModel
