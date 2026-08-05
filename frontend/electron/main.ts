@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { createTeamsCallMonitor } from './teams-call-monitor.js';
 import { createTeamsIgnoreList } from './teams-ignore-list.js';
 import { createBackendProcessManager } from './backend-process.js';
+import { createTrayController } from './tray.js';
 import {
   AUTO_RECORD_PROMPT_ACTION_CHANNEL,
   AUTO_RECORD_PROMPT_STATE_CHANGED_CHANNEL,
@@ -17,6 +18,8 @@ import {
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const shouldStartHidden =
+  process.argv.includes('--hidden') || process.env.VOXVAULT_START_HIDDEN === '1';
 const backend = createBackendProcessManager();
 const teamsCallMonitor = createTeamsCallMonitor();
 const STOP_PROMPT_CONTINUE_EXTENSION_MS = 20 * 60 * 1000;
@@ -25,6 +28,8 @@ const recorderStatusFilePath = path.join(app.getPath('userData'), 'recorder-runt
 
 let mainWindow: BrowserWindow | null = null;
 let autoRecordPromptWindow: BrowserWindow | null = null;
+let trayController: ReturnType<typeof createTrayController> | null = null;
+let isQuitting = false;
 let autoRecordPromptState: AutoRecordPromptState = {
   visible: false,
   kind: 'start',
@@ -40,6 +45,14 @@ let recorderRuntimeStatus: RecorderRuntimeStatus = {
   updatedAt: null,
 };
 
+if (!app.requestSingleInstanceLock()) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    showMainWindow();
+  });
+}
+
 async function persistRecorderRuntimeStatus(): Promise<void> {
   await writeFile(recorderStatusFilePath, JSON.stringify(recorderRuntimeStatus, null, 2), 'utf8');
 }
@@ -51,6 +64,7 @@ async function setRecorderRuntimeStatus(
     ...status,
     updatedAt: new Date().toISOString(),
   };
+  trayController?.updateStatus(recorderRuntimeStatus);
 
   await persistRecorderRuntimeStatus().catch(() => undefined);
 
@@ -104,11 +118,27 @@ function createMainWindow(): BrowserWindow {
   const win = new BrowserWindow({
     width: 1280,
     height: 920,
+    show: false,
+    skipTaskbar: true,
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
+      backgroundThrottling: false,
       preload: path.join(__dirname, 'preload.cjs'),
     },
+  });
+
+  win.on('ready-to-show', () => {
+    if (!shouldStartHidden) {
+      showMainWindow();
+    }
+  });
+
+  win.on('close', (event) => {
+    if (!isQuitting) {
+      event.preventDefault();
+      hideMainWindow();
+    }
   });
 
   const entryUrl = getRendererEntryUrl();
@@ -122,11 +152,34 @@ function createMainWindow(): BrowserWindow {
   return win;
 }
 
+function showMainWindow(): void {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    mainWindow = createMainWindow();
+  }
+
+  mainWindow.setSkipTaskbar(false);
+  mainWindow.show();
+  if (mainWindow.isMinimized()) {
+    mainWindow.restore();
+  }
+  mainWindow.focus();
+}
+
+function hideMainWindow(): void {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    return;
+  }
+
+  mainWindow.hide();
+  mainWindow.setSkipTaskbar(true);
+}
+
 function createAutoRecordPromptWindow(): BrowserWindow {
   const win = new BrowserWindow({
     width: 500,
     height: 320,
     show: false,
+    skipTaskbar: true,
     resizable: false,
     minimizable: false,
     maximizable: false,
@@ -257,6 +310,17 @@ async function respondToAutoRecordPrompt(action: AutoRecordPromptAction): Promis
 
 app.whenReady().then(() => {
   mainWindow = createMainWindow();
+  trayController = createTrayController({
+    onOpen: showMainWindow,
+    onRestartBackend: () => {
+      void backend.restart();
+    },
+    onQuit: () => {
+      isQuitting = true;
+      app.quit();
+    },
+  });
+  trayController.create();
 
   registerIpcHandlers({
     getBackendStatus: backend.getStatus,
@@ -300,12 +364,15 @@ app.whenReady().then(() => {
 });
 
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
+  if (process.platform !== 'darwin' && isQuitting) {
     app.quit();
   }
 });
 
 app.on('before-quit', async () => {
+  isQuitting = true;
+  trayController?.destroy();
+  trayController = null;
   autoRecordPromptState = {
     visible: false,
     kind: 'start',

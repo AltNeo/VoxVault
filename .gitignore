@@ -31,5 +31,6 @@ backend/backups/*
 !backend/backups/.gitkeep
 backend/.model-cache/
 backend/.tmp*/
+.runtime/
 .vscode/
 .idea/
