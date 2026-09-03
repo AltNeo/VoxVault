@@ -419,15 +419,12 @@ body {
 
 .dock__panel {
   min-height: 0;
-  flex: 1;
   overflow: visible;
   display: flex;
   flex-direction: column;
 }
 
 .dock__panel .module {
-  height: 100%;
-  flex: 1;
   margin: 0;
   display: flex;
   flex-direction: column;
