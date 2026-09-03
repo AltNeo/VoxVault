@@ -17,7 +17,7 @@ describe('teams call session helpers', () => {
     expect(refreshed.graceExpiresAtMs).toBe(61_000 + TEAMS_CALL_SESSION_GRACE_MS);
   });
 
-  it('expires only after the 30 minute grace window passes', () => {
+  it('expires only after the 45 minute grace window passes', () => {
     const session = createTeamsCallSession('Daily Sync | Microsoft Teams', 5_000);
 
     expect(isTeamsCallSessionExpired(session, 5_000 + TEAMS_CALL_SESSION_GRACE_MS - 1)).toBe(

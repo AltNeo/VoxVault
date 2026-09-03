@@ -14,7 +14,7 @@ export type TeamsCallMonitorStatus = {
 type Listener = (status: TeamsCallMonitorStatus) => void;
 
 const POLL_INTERVAL_MS = 4000;
-export const TEAMS_CALL_SESSION_GRACE_MS = 30 * 60 * 1000;
+export const TEAMS_CALL_SESSION_GRACE_MS = 45 * 60 * 1000;
 
 export type TeamsCallSession = {
   originalTitle: string;
