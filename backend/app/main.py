@@ -40,10 +40,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             await services.transcription_provider.warmup()
         except APIError:
             transaction_logger.exception("local.whisper.warmup_failed")
-        try:
-            await services.summary_service.warmup()
-        except Exception:
-            transaction_logger.exception("summary.model.warmup_failed")
+        # Load the optional, heavyweight summary model only when a summary is requested.
+        # Keeping it out of the lifespan makes the API responsive during app startup.
         yield
 
     app = FastAPI(
