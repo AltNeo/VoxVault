@@ -12,6 +12,7 @@ import httpx
 import psutil
 
 from app.core.config import Settings
+from app.services.calendar_signal import CalendarSignalService
 
 Transition = Literal["START", "CONTINUE", "SWITCH", "END", "UNCERTAIN"]
 TEAMS_PROCESS_NAMES = {"ms-teams.exe", "teams.exe"}
@@ -170,11 +171,16 @@ def _teams_windows(process_ids: set[int]) -> list[TeamsWindow]:
 
 
 class TeamsCallTransitionService:
-    def __init__(self, settings: Settings) -> None:
+    def __init__(
+        self,
+        settings: Settings,
+        calendar_signal_service: CalendarSignalService | None = None,
+    ) -> None:
         self._api_key = (settings.typesafe_api_key or "").strip()
         self._model = settings.typesafe_model
         self._timeout_seconds = settings.typesafe_timeout_seconds
         self._confidence_threshold = settings.typesafe_transition_confidence
+        self._calendar_signal_service = calendar_signal_service
         self._previous_snapshot: dict[str, Any] | None = None
         self._previous_signature: str | None = None
         self._previous_decision: Transition = "UNCERTAIN"
@@ -249,6 +255,11 @@ class TeamsCallTransitionService:
         current: dict[str, Any],
         periodic_review: bool,
     ) -> tuple[Transition, float, dict[str, float], str]:
+        calendar_signal = (
+            await self._calendar_signal_service.current_signal()
+            if self._calendar_signal_service is not None
+            else {"meeting_scheduled_now": False}
+        )
         payload = {
             "model": self._model,
             "state": {
@@ -256,6 +267,7 @@ class TeamsCallTransitionService:
                 "current_snapshot": current,
                 "previous_stable_decision": self._previous_decision,
                 "periodic_long_call_review": periodic_review,
+                "calendar_signal": calendar_signal,
             },
             "questions": {
                 "call_transition": {
@@ -267,6 +279,10 @@ class TeamsCallTransitionService:
                         "If active call evidence remains but a meeting or participant title, owning "
                         "call window, or other call identity evidence changes, classify SWITCH. "
                         "When snapshots contain identical call evidence, classify CONTINUE."
+                        " Calendar schedule is supporting context only: it may strengthen START or "
+                        "CONTINUE, but a scheduled meeting alone is not active-call evidence. "
+                        "A meeting reaching its scheduled end must never cause END; calls may run "
+                        "past their calendar end time."
                     ),
                     "criteria": {
                         "START": "No prior active call and current evidence identifies an active call.",

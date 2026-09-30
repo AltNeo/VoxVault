@@ -62,6 +62,15 @@ class Settings(BaseSettings):
     typesafe_model: str = "jev-1.13.0"
     typesafe_timeout_seconds: float = 3.0
     typesafe_transition_confidence: float = 0.8
+    calendar_signal_path: Path = (
+        Path.home()
+        / "OneDrive - Anheuser-Busch InBev"
+        / "Documents"
+        / "Experiment"
+        / "Routines"
+        / "calendar-signal.json"
+    )
+    calendar_signal_refresh_seconds: float = 30 * 60
 
 
 @lru_cache

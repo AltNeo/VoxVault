@@ -1,7 +1,9 @@
 import asyncio
+import json
 
 from app.core.config import Settings
 from app.services import teams_call_detector
+from app.services.calendar_signal import CalendarSignalService
 from app.services.teams_call_detector import TeamsCallTransitionService, snapshot_signature
 
 
@@ -111,3 +113,74 @@ def test_long_call_forces_jev_review_after_40_minutes(monkeypatch) -> None:
     assert before_interval["evaluated"] is False
     assert second_review["evaluated"] is True
     assert calls == [False, True, True]
+
+
+def test_jev_receives_only_current_calendar_signal(monkeypatch, tmp_path) -> None:
+    calendar_path = tmp_path / "calendar.json"
+    calendar_path.write_text(
+        json.dumps(
+            {
+                "value": [
+                    {
+                        "subject": "Team Huddle",
+                        "startWithTimeZone": "2026-09-30T11:30:00+05:30",
+                        "endWithTimeZone": "2026-09-30T12:30:00+05:30",
+                        "responseType": "accepted",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    calendar = CalendarSignalService(
+        calendar_path,
+        1800,
+        now=lambda: teams_call_detector.datetime.fromisoformat(
+            "2026-09-30T12:00:00+05:30"
+        ),
+    )
+    service = TeamsCallTransitionService(
+        Settings(typesafe_api_key="test-key"),
+        calendar,
+    )
+    captured_payload = None
+
+    class FakeResponse:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict:
+            return {
+                "answers": {
+                    "call_transition": {
+                        "choice": "START",
+                        "confidence": 0.95,
+                        "probabilities": {"START": 0.95},
+                    }
+                },
+                "model": "jev-test",
+            }
+
+    class FakeClient:
+        def __init__(self, **kwargs) -> None:
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, traceback) -> None:
+            return None
+
+        async def post(self, url, *, headers, json):
+            nonlocal captured_payload
+            captured_payload = json
+            return FakeResponse()
+
+    monkeypatch.setattr(teams_call_detector.httpx, "AsyncClient", FakeClient)
+
+    asyncio.run(service._ask_jev(None, _snapshot(title="Team Huddle"), False))
+
+    assert captured_payload["state"]["calendar_signal"] == {
+        "meeting_scheduled_now": True,
+    }
+    assert "value" not in captured_payload["state"]["calendar_signal"]
