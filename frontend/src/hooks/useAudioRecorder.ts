@@ -26,6 +26,17 @@ export function didTeamsCallSwitch(
   );
 }
 
+export function isTeamsSessionSuppressed(
+  suppressedSessionStartedAt: string | null,
+  currentSessionStartedAt: string | null
+): boolean {
+  return (
+    suppressedSessionStartedAt !== null &&
+    currentSessionStartedAt !== null &&
+    suppressedSessionStartedAt === currentSessionStartedAt
+  );
+}
+
 const RECORDER_MIME_CANDIDATES = [
   'audio/mpeg',
   'audio/mp3',
@@ -112,6 +123,7 @@ export function useAudioRecorder(): UseAudioRecorderResult {
   const requestedAutoRecordTitleRef = useRef<string | null>(null);
   const pendingStartRequestRef = useRef<StartRecordingRequest | null>(null);
   const stoppingForRestartRef = useRef(false);
+  const suppressedTeamsSessionStartedAtRef = useRef<string | null>(null);
 
   const stopRecordingNow = useCallback(() => {
     if (recorderRef.current && recorderRef.current.state !== 'inactive') {
@@ -438,6 +450,34 @@ export function useAudioRecorder(): UseAudioRecorderResult {
   }, [startRecording, status, stopRecordingNow]);
 
   useEffect(() => {
+    if (!window.electronAPI?.onRecorderCommand) {
+      return;
+    }
+
+    return window.electronAPI.onRecorderCommand((command) => {
+      if (command === 'stop') {
+        if (status === 'recording' && autoRecordingRef.current) {
+          suppressedTeamsSessionStartedAtRef.current = sessionStartedAt;
+        }
+        stopRecordingNow();
+        return;
+      }
+
+      suppressedTeamsSessionStartedAtRef.current = null;
+      if (status !== 'recording') {
+        void startRecording(callDetected ? 'auto' : 'manual', matchedWindowTitle);
+      }
+    });
+  }, [
+    callDetected,
+    matchedWindowTitle,
+    sessionStartedAt,
+    startRecording,
+    status,
+    stopRecordingNow,
+  ]);
+
+  useEffect(() => {
     const previousTeamsCallDetected = previousTeamsCallDetectedRef.current;
     const previousTeamsSessionStartedAt = previousTeamsSessionStartedAtRef.current;
     const previousAutoTeamsRecordEnabled = previousAutoTeamsRecordEnabledRef.current;
@@ -451,6 +491,10 @@ export function useAudioRecorder(): UseAudioRecorderResult {
       supported &&
       supportsSystemAudio &&
       captureMode === 'microphone_system';
+    const currentSessionSuppressed = isTeamsSessionSuppressed(
+      suppressedTeamsSessionStartedAtRef.current,
+      sessionStartedAt
+    );
 
     const callSwitched = didTeamsCallSwitch(
       previousTeamsCallDetected,
@@ -459,7 +503,7 @@ export function useAudioRecorder(): UseAudioRecorderResult {
       sessionStartedAt
     );
 
-    if (canAutoRecord && callSwitched) {
+    if (canAutoRecord && callSwitched && !currentSessionSuppressed) {
       const currentTitle = matchedWindowTitle?.trim() ?? '';
       if (!currentTitle) {
         return;
@@ -479,6 +523,7 @@ export function useAudioRecorder(): UseAudioRecorderResult {
     if (
       canAutoRecord &&
       callDetected &&
+      !currentSessionSuppressed &&
       status !== 'recording' &&
       (!previousTeamsCallDetected || !previousAutoTeamsRecordEnabled)
     ) {
@@ -513,6 +558,7 @@ export function useAudioRecorder(): UseAudioRecorderResult {
 
     if (!callDetected) {
       requestedAutoRecordTitleRef.current = null;
+      suppressedTeamsSessionStartedAtRef.current = null;
     }
   }, [
     autoTeamsRecordEnabled,

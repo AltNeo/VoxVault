@@ -23,6 +23,7 @@ export type AutoRecordPromptRequestResult = {
 };
 
 export type AutoRecordPromptAction = 'confirm' | 'dismiss';
+export type RecorderCommand = 'start' | 'stop';
 
 export type AudioSource = {
   id: string;
@@ -46,6 +47,7 @@ const AUTO_RECORD_PROMPT_STATE_CHANGED_CHANNEL = 'auto-record-prompt-state-chang
 const AUTO_RECORD_PROMPT_ACTION_CHANNEL = 'auto-record-prompt-action';
 const GET_RECORDER_RUNTIME_STATUS_CHANNEL = 'get-recorder-runtime-status';
 const SET_RECORDER_RUNTIME_STATUS_CHANNEL = 'set-recorder-runtime-status';
+const RECORDER_COMMAND_CHANNEL = 'recorder-command';
 
 type RegisterIpcHandlersOptions = {
   getBackendStatus: () => BackendStatus;
@@ -137,9 +139,12 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions): void {
     }
   );
 
-  ipcMain.handle(REQUEST_STOP_RECORD_PROMPT_CHANNEL, async (): Promise<AutoRecordPromptRequestResult> => {
-    return options.requestStopRecordPrompt();
-  });
+  ipcMain.handle(
+    REQUEST_STOP_RECORD_PROMPT_CHANNEL,
+    async (): Promise<AutoRecordPromptRequestResult> => {
+      return options.requestStopRecordPrompt();
+    }
+  );
 
   ipcMain.handle(
     RESPOND_TO_AUTO_RECORD_PROMPT_CHANNEL,
@@ -173,4 +178,5 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions): void {
 export {
   AUTO_RECORD_PROMPT_ACTION_CHANNEL,
   AUTO_RECORD_PROMPT_STATE_CHANGED_CHANNEL,
+  RECORDER_COMMAND_CHANNEL,
 };

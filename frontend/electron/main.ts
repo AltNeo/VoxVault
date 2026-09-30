@@ -9,6 +9,7 @@ import { createTrayController } from './tray.js';
 import {
   AUTO_RECORD_PROMPT_ACTION_CHANNEL,
   AUTO_RECORD_PROMPT_STATE_CHANGED_CHANNEL,
+  RECORDER_COMMAND_CHANNEL,
   registerIpcHandlers,
   type AutoRecordPromptAction,
   type AutoRecordPromptRequestResult,
@@ -104,6 +105,12 @@ function broadcastAutoRecordPromptState(): void {
 function emitAutoRecordPromptAction(action: AutoRecordPromptAction, title: string): void {
   for (const window of BrowserWindow.getAllWindows()) {
     window.webContents.send(AUTO_RECORD_PROMPT_ACTION_CHANNEL, { action, title });
+  }
+}
+
+function emitRecorderCommand(command: 'start' | 'stop'): void {
+  for (const window of BrowserWindow.getAllWindows()) {
+    window.webContents.send(RECORDER_COMMAND_CHANNEL, command);
   }
 }
 
@@ -312,6 +319,8 @@ app.whenReady().then(() => {
   mainWindow = createMainWindow();
   trayController = createTrayController({
     onOpen: showMainWindow,
+    onStartRecording: () => emitRecorderCommand('start'),
+    onStopRecording: () => emitRecorderCommand('stop'),
     onRestartBackend: () => {
       void backend.restart();
     },
@@ -340,7 +349,11 @@ app.whenReady().then(() => {
   teamsCallMonitor.start();
   void persistRecorderRuntimeStatus().catch(() => undefined);
   teamsCallMonitor.subscribe((status) => {
-    if (autoRecordPromptState.visible && autoRecordPromptState.kind === 'stop' && status.callDetected) {
+    if (
+      autoRecordPromptState.visible &&
+      autoRecordPromptState.kind === 'stop' &&
+      status.callDetected
+    ) {
       autoRecordPromptState = {
         visible: false,
         kind: 'start',

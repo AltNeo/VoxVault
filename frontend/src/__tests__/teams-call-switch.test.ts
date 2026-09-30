@@ -1,4 +1,4 @@
-import { didTeamsCallSwitch } from '../hooks/useAudioRecorder';
+import { didTeamsCallSwitch, isTeamsSessionSuppressed } from '../hooks/useAudioRecorder';
 
 describe('Teams call switch detection', () => {
   it('detects a new session while call detection remains active', () => {
@@ -11,5 +11,11 @@ describe('Teams call switch detection', () => {
     expect(didTeamsCallSwitch(true, true, '2026-09-30T10:00:00Z', '2026-09-30T10:00:00Z')).toBe(
       false
     );
+  });
+
+  it('suppresses auto restart only for the hard-stopped session', () => {
+    expect(isTeamsSessionSuppressed('session-a', 'session-a')).toBe(true);
+    expect(isTeamsSessionSuppressed('session-a', 'session-b')).toBe(false);
+    expect(isTeamsSessionSuppressed('session-a', null)).toBe(false);
   });
 });

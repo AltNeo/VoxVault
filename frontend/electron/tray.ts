@@ -15,6 +15,8 @@ export type TrayController = {
 
 type TrayControllerOptions = {
   onOpen: () => void;
+  onStartRecording: () => void;
+  onStopRecording: () => void;
   onRestartBackend: () => void;
   onQuit: () => void;
 };
@@ -78,6 +80,10 @@ export function createTrayController(options: TrayControllerOptions): TrayContro
       Menu.buildFromTemplate([
         { label: 'Open VoxVault', click: options.onOpen },
         { label: statusLabel, enabled: false },
+        {
+          label: status.recording ? 'Stop and save recording' : 'Start recording',
+          click: status.recording ? options.onStopRecording : options.onStartRecording,
+        },
         { type: 'separator' },
         { label: 'Restart backend', click: options.onRestartBackend },
         { type: 'separator' },

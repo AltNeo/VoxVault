@@ -35,6 +35,7 @@ type AutoRecordPromptState = {
   updatedAt: string | null;
 };
 type AutoRecordPromptAction = 'confirm' | 'dismiss';
+type RecorderCommand = 'start' | 'stop';
 type AutoRecordPromptRequestResult = {
   status: 'shown' | 'ignored' | 'already-open';
 };
@@ -57,6 +58,7 @@ const TEAMS_CALL_MONITOR_STATUS_CHANGED_CHANNEL = 'teams-call-monitor-status-cha
 const GET_RECORDER_RUNTIME_STATUS_CHANNEL = 'get-recorder-runtime-status';
 const SET_RECORDER_RUNTIME_STATUS_CHANNEL = 'set-recorder-runtime-status';
 const RECORDER_RUNTIME_STATUS_CHANGED_CHANNEL = 'recorder-runtime-status-changed';
+const RECORDER_COMMAND_CHANNEL = 'recorder-command';
 
 contextBridge.exposeInMainWorld('electronAPI', {
   getAudioSources: async (): Promise<AudioSource[]> => {
@@ -92,7 +94,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   respondToAutoRecordPrompt: async (action: AutoRecordPromptAction): Promise<void> => {
     return ipcRenderer.invoke(RESPOND_TO_AUTO_RECORD_PROMPT_CHANNEL, action);
   },
-  onAutoRecordPromptStateChanged: (listener: (state: AutoRecordPromptState) => void): (() => void) => {
+  onAutoRecordPromptStateChanged: (
+    listener: (state: AutoRecordPromptState) => void
+  ): (() => void) => {
     const wrappedListener = (_event: Electron.IpcRendererEvent, state: AutoRecordPromptState) => {
       listener(state);
     };
@@ -147,6 +151,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on(RECORDER_RUNTIME_STATUS_CHANGED_CHANNEL, wrappedListener);
     return () => {
       ipcRenderer.removeListener(RECORDER_RUNTIME_STATUS_CHANGED_CHANNEL, wrappedListener);
+    };
+  },
+  onRecorderCommand: (listener: (command: RecorderCommand) => void): (() => void) => {
+    const wrappedListener = (_event: Electron.IpcRendererEvent, command: RecorderCommand) => {
+      listener(command);
+    };
+
+    ipcRenderer.on(RECORDER_COMMAND_CHANNEL, wrappedListener);
+    return () => {
+      ipcRenderer.removeListener(RECORDER_COMMAND_CHANNEL, wrappedListener);
     };
   },
   convertAudioToMp3: async (audioBytes: Uint8Array, mimeType: string): Promise<Uint8Array> => {

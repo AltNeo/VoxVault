@@ -35,6 +35,7 @@ type ElectronAutoRecordPromptState = {
   updatedAt: string | null;
 };
 type ElectronAutoRecordPromptAction = 'confirm' | 'dismiss';
+type ElectronRecorderCommand = 'start' | 'stop';
 type ElectronAutoRecordPromptRequestResult = {
   status: 'shown' | 'ignored' | 'already-open';
 };
@@ -67,6 +68,7 @@ interface ElectronAPI {
   onRecorderRuntimeStatusChanged: (
     listener: (status: ElectronRecorderRuntimeStatus) => void
   ) => () => void;
+  onRecorderCommand: (listener: (command: ElectronRecorderCommand) => void) => () => void;
   convertAudioToMp3: (audioBytes: Uint8Array, mimeType: string) => Promise<Uint8Array>;
 }
 
