@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import platform
+import time
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from typing import Any, Literal
@@ -15,6 +16,8 @@ from app.core.config import Settings
 Transition = Literal["START", "CONTINUE", "SWITCH", "END", "UNCERTAIN"]
 TEAMS_PROCESS_NAMES = {"ms-teams.exe", "teams.exe"}
 CALL_TOOLBAR_PREFIX = "callingButtons-"
+LONG_CALL_REVIEW_AFTER_SECONDS = 40 * 60
+LONG_CALL_REVIEW_INTERVAL_SECONDS = 20 * 60
 
 
 @dataclass(frozen=True, slots=True)
@@ -175,14 +178,19 @@ class TeamsCallTransitionService:
         self._previous_snapshot: dict[str, Any] | None = None
         self._previous_signature: str | None = None
         self._previous_decision: Transition = "UNCERTAIN"
+        self._active_since: float | None = None
+        self._last_jev_evaluation_at: float | None = None
+        self._clock = time.monotonic
         self._lock = asyncio.Lock()
 
     async def evaluate(self) -> dict[str, Any]:
         async with self._lock:
             current = await asyncio.to_thread(capture_teams_snapshot)
             current_signature = snapshot_signature(current)
+            now = self._clock()
+            periodic_review_due = self._is_periodic_review_due(now)
 
-            if self._previous_signature == current_signature:
+            if self._previous_signature == current_signature and not periodic_review_due:
                 decision: Transition = (
                     "CONTINUE"
                     if self._previous_decision in {"START", "CONTINUE", "SWITCH"}
@@ -196,7 +204,11 @@ class TeamsCallTransitionService:
                 return self._result(current, "UNCERTAIN", 0.0, False, "TYPESAFE_API_KEY missing")
 
             try:
-                decision, confidence, probabilities, model = await self._ask_jev(previous, current)
+                decision, confidence, probabilities, model = await self._ask_jev(
+                    previous,
+                    current,
+                    periodic_review_due,
+                )
             except Exception as exc:
                 return self._result(
                     current,
@@ -214,7 +226,16 @@ class TeamsCallTransitionService:
                 self._previous_snapshot = current
                 self._previous_signature = current_signature
                 self._previous_decision = decision
-                reason = "Jev classified changed Teams features"
+                self._last_jev_evaluation_at = now
+                if decision in {"START", "SWITCH"}:
+                    self._active_since = now
+                elif decision == "END":
+                    self._active_since = None
+                reason = (
+                    "Jev performed scheduled long-call review"
+                    if periodic_review_due
+                    else "Jev classified changed Teams features"
+                )
 
             result = self._result(current, effective_decision, confidence, True, reason)
             result["probabilities"] = probabilities
@@ -226,6 +247,7 @@ class TeamsCallTransitionService:
         self,
         previous: dict[str, Any] | None,
         current: dict[str, Any],
+        periodic_review: bool,
     ) -> tuple[Transition, float, dict[str, float], str]:
         payload = {
             "model": self._model,
@@ -233,6 +255,7 @@ class TeamsCallTransitionService:
                 "previous_snapshot": previous,
                 "current_snapshot": current,
                 "previous_stable_decision": self._previous_decision,
+                "periodic_long_call_review": periodic_review,
             },
             "questions": {
                 "call_transition": {
@@ -276,6 +299,16 @@ class TeamsCallTransitionService:
             float(answer["confidence"]),
             {str(key): float(value) for key, value in answer["probabilities"].items()},
             str(body.get("model") or self._model),
+        )
+
+    def _is_periodic_review_due(self, now: float) -> bool:
+        if self._previous_decision not in {"START", "CONTINUE", "SWITCH"}:
+            return False
+        if self._active_since is None or self._last_jev_evaluation_at is None:
+            return False
+        return (
+            now - self._active_since >= LONG_CALL_REVIEW_AFTER_SECONDS
+            and now - self._last_jev_evaluation_at >= LONG_CALL_REVIEW_INTERVAL_SECONDS
         )
 
     def _result(

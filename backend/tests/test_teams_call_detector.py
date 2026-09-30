@@ -43,7 +43,7 @@ def test_service_only_asks_jev_when_features_change(monkeypatch) -> None:
     monkeypatch.setattr(teams_call_detector, "capture_teams_snapshot", lambda: next(snapshots))
     calls = 0
 
-    async def fake_ask(previous, current):
+    async def fake_ask(previous, current, periodic_review):
         nonlocal calls
         calls += 1
         return "START", 0.95, {"START": 0.95, "CONTINUE": 0.05}, "jev-test"
@@ -68,7 +68,7 @@ def test_low_confidence_transition_becomes_uncertain(monkeypatch) -> None:
         lambda: _snapshot(title="Beta review"),
     )
 
-    async def fake_ask(previous, current):
+    async def fake_ask(previous, current, periodic_review):
         return "SWITCH", 0.55, {"SWITCH": 0.55, "CONTINUE": 0.45}, "jev-test"
 
     monkeypatch.setattr(service, "_ask_jev", fake_ask)
@@ -78,3 +78,36 @@ def test_low_confidence_transition_becomes_uncertain(monkeypatch) -> None:
     assert first["decision"] == "UNCERTAIN"
     assert first["raw_decision"] == "SWITCH"
     assert second["evaluated"] is True
+
+
+def test_long_call_forces_jev_review_after_40_minutes(monkeypatch) -> None:
+    settings = Settings(typesafe_api_key="test-key")
+    service = TeamsCallTransitionService(settings)
+    snapshot = _snapshot(title="Alpha planning")
+    monkeypatch.setattr(teams_call_detector, "capture_teams_snapshot", lambda: snapshot)
+    now = 0.0
+    service._clock = lambda: now
+    calls: list[bool] = []
+
+    async def fake_ask(previous, current, periodic_review):
+        calls.append(periodic_review)
+        decision = "START" if previous is None else "CONTINUE"
+        return decision, 0.95, {decision: 0.95}, "jev-test"
+
+    monkeypatch.setattr(service, "_ask_jev", fake_ask)
+
+    asyncio.run(service.evaluate())
+    now = 39 * 60
+    before_threshold = asyncio.run(service.evaluate())
+    now = 40 * 60
+    first_review = asyncio.run(service.evaluate())
+    now = 59 * 60
+    before_interval = asyncio.run(service.evaluate())
+    now = 60 * 60
+    second_review = asyncio.run(service.evaluate())
+
+    assert before_threshold["evaluated"] is False
+    assert first_review["evaluated"] is True
+    assert before_interval["evaluated"] is False
+    assert second_review["evaluated"] is True
+    assert calls == [False, True, True]
