@@ -67,6 +67,9 @@ class CalendarSignalService:
     def _is_scheduled_now(cls, event: dict[str, Any], current: datetime) -> bool:
         if str(event.get("responseType") or "").lower() == "declined":
             return False
+        subject = str(event.get("subject") or "").strip()
+        if subject.casefold() == "focus time":
+            return False
         start = cls._parse_time(event.get("startWithTimeZone"))
         end = cls._parse_time(event.get("endWithTimeZone"))
         if start is None or end is None:

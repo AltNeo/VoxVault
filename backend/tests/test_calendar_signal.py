@@ -59,6 +59,28 @@ def test_scheduled_end_is_exclusive(tmp_path) -> None:
     assert asyncio.run(service.current_signal())["meeting_scheduled_now"] is False
 
 
+def test_focus_time_is_not_a_meeting(tmp_path) -> None:
+    path = tmp_path / "calendar.json"
+    _write_calendar(
+        path,
+        [
+            {
+                "subject": "Focus time",
+                "startWithTimeZone": "2026-09-30T11:30:00+05:30",
+                "endWithTimeZone": "2026-09-30T12:30:00+05:30",
+                "responseType": "accepted",
+            }
+        ],
+    )
+    service = CalendarSignalService(
+        path,
+        1800,
+        now=lambda: datetime(2026, 9, 30, 6, 30, tzinfo=timezone.utc),
+    )
+
+    assert asyncio.run(service.current_signal())["meeting_scheduled_now"] is False
+
+
 def test_invalid_sync_file_keeps_last_valid_snapshot(tmp_path) -> None:
     path = tmp_path / "calendar.json"
     _write_calendar(
