@@ -11,6 +11,21 @@ type StartRecordingRequest = {
   windowTitle: string | null;
 };
 
+export function didTeamsCallSwitch(
+  previousDetected: boolean,
+  currentDetected: boolean,
+  previousSessionStartedAt: string | null,
+  currentSessionStartedAt: string | null
+): boolean {
+  return (
+    previousDetected &&
+    currentDetected &&
+    previousSessionStartedAt !== null &&
+    currentSessionStartedAt !== null &&
+    previousSessionStartedAt !== currentSessionStartedAt
+  );
+}
+
 const RECORDER_MIME_CANDIDATES = [
   'audio/mpeg',
   'audio/mp3',
@@ -49,7 +64,10 @@ interface UseAudioRecorderResult {
   error: string | null;
   setCaptureMode: (mode: CaptureMode) => void;
   setAutoTeamsRecordEnabled: (enabled: boolean) => void;
-  startRecording: (trigger?: RecordingTrigger, requestedWindowTitle?: string | null) => Promise<void>;
+  startRecording: (
+    trigger?: RecordingTrigger,
+    requestedWindowTitle?: string | null
+  ) => Promise<void>;
   stopRecording: () => void;
   resetRecording: () => void;
 }
@@ -83,12 +101,13 @@ export function useAudioRecorder(): UseAudioRecorderResult {
   const timerRef = useRef<number | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const { supportsSystemAudio, systemAudioBackend, getSystemAudioStream } = useSystemAudio();
-  const { supported, callDetected, matchedWindowTitle } = useTeamsCallMonitor();
+  const { supported, callDetected, matchedWindowTitle, sessionStartedAt } = useTeamsCallMonitor();
   const autoRecordingRef = useRef(false);
   const recordingWindowTitleRef = useRef<string | null>(null);
   const recordingStartedAtRef = useRef<string | null>(null);
   const recordingTriggerRef = useRef<RecordingTrigger | null>(null);
   const previousTeamsCallDetectedRef = useRef(callDetected);
+  const previousTeamsSessionStartedAtRef = useRef(sessionStartedAt);
   const previousAutoTeamsRecordEnabledRef = useRef(autoTeamsRecordEnabled);
   const requestedAutoRecordTitleRef = useRef<string | null>(null);
   const pendingStartRequestRef = useRef<StartRecordingRequest | null>(null);
@@ -420,9 +439,11 @@ export function useAudioRecorder(): UseAudioRecorderResult {
 
   useEffect(() => {
     const previousTeamsCallDetected = previousTeamsCallDetectedRef.current;
+    const previousTeamsSessionStartedAt = previousTeamsSessionStartedAtRef.current;
     const previousAutoTeamsRecordEnabled = previousAutoTeamsRecordEnabledRef.current;
 
     previousTeamsCallDetectedRef.current = callDetected;
+    previousTeamsSessionStartedAtRef.current = sessionStartedAt;
     previousAutoTeamsRecordEnabledRef.current = autoTeamsRecordEnabled;
 
     const canAutoRecord =
@@ -430,6 +451,30 @@ export function useAudioRecorder(): UseAudioRecorderResult {
       supported &&
       supportsSystemAudio &&
       captureMode === 'microphone_system';
+
+    const callSwitched = didTeamsCallSwitch(
+      previousTeamsCallDetected,
+      callDetected,
+      previousTeamsSessionStartedAt,
+      sessionStartedAt
+    );
+
+    if (canAutoRecord && callSwitched) {
+      const currentTitle = matchedWindowTitle?.trim() ?? '';
+      if (!currentTitle) {
+        return;
+      }
+
+      requestedAutoRecordTitleRef.current = currentTitle;
+      if (status === 'recording' && autoRecordingRef.current) {
+        void startRecording('auto', currentTitle);
+      } else if (status !== 'recording') {
+        void window.electronAPI?.requestAutoRecordPrompt?.(currentTitle).catch(() => {
+          requestedAutoRecordTitleRef.current = null;
+        });
+      }
+      return;
+    }
 
     if (
       canAutoRecord &&
@@ -477,10 +522,12 @@ export function useAudioRecorder(): UseAudioRecorderResult {
     status,
     requestStopRecordingConfirmation,
     shouldConfirmAutoStop,
+    startRecording,
     stopRecording,
     stopRecordingNow,
     supported,
     supportsSystemAudio,
+    sessionStartedAt,
   ]);
 
   useEffect(() => {

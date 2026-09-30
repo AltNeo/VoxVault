@@ -58,6 +58,10 @@ class Settings(BaseSettings):
         default=None,
         validation_alias=AliasChoices("CHUTES_API_KEY", "CHUTES_API_TOKEN"),
     )
+    typesafe_api_key: str | None = None
+    typesafe_model: str = "jev-1.13.0"
+    typesafe_timeout_seconds: float = 3.0
+    typesafe_transition_confidence: float = 0.8
 
 
 @lru_cache

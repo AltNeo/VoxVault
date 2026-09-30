@@ -1,5 +1,6 @@
 import {
   TEAMS_CALL_SESSION_GRACE_MS,
+  applyTeamsTransition,
   createTeamsCallSession,
   extendTeamsCallSession,
   isTeamsCallSessionExpired,
@@ -20,9 +21,7 @@ describe('teams call session helpers', () => {
   it('expires only after the 45 minute grace window passes', () => {
     const session = createTeamsCallSession('Daily Sync | Microsoft Teams', 5_000);
 
-    expect(isTeamsCallSessionExpired(session, 5_000 + TEAMS_CALL_SESSION_GRACE_MS - 1)).toBe(
-      false
-    );
+    expect(isTeamsCallSessionExpired(session, 5_000 + TEAMS_CALL_SESSION_GRACE_MS - 1)).toBe(false);
     expect(isTeamsCallSessionExpired(session, 5_000 + TEAMS_CALL_SESSION_GRACE_MS)).toBe(true);
   });
 
@@ -32,5 +31,27 @@ describe('teams call session helpers', () => {
     const extended = extendTeamsCallSession(session, nowMs, 20 * 60 * 1000);
 
     expect(extended.graceExpiresAtMs).toBe(nowMs + 20 * 60 * 1000);
+  });
+
+  it('starts a fresh session when Jev identifies an immediate call switch', () => {
+    const first = createTeamsCallSession('Alpha planning', 1_000);
+    const switched = applyTeamsTransition(first, 'SWITCH', 'Beta review', 2_000);
+
+    expect(switched?.originalTitle).toBe('Beta review');
+    expect(switched?.startedAtMs).toBe(2_000);
+  });
+
+  it('keeps the current session when Jev is uncertain', () => {
+    const current = createTeamsCallSession('Alpha planning', 1_000);
+
+    expect(applyTeamsTransition(current, 'UNCERTAIN', 'Other title', 2_000)).toBe(current);
+  });
+
+  it('treats title aliases as the same call when Jev says continue', () => {
+    const current = createTeamsCallSession('Alpha planning | Microsoft Teams', 1_000);
+    const continued = applyTeamsTransition(current, 'CONTINUE', 'Microsoft Teams', 2_000);
+
+    expect(continued?.originalTitle).toBe('Alpha planning | Microsoft Teams');
+    expect(continued?.startedAtMs).toBe(1_000);
   });
 });

@@ -1,6 +1,3 @@
-import { desktopCapturer } from 'electron';
-import { isLikelyTeamsCallWindow } from './meeting-detection.js';
-
 export type TeamsCallMonitorStatus = {
   supported: boolean;
   callDetected: boolean;
@@ -13,7 +10,17 @@ export type TeamsCallMonitorStatus = {
 
 type Listener = (status: TeamsCallMonitorStatus) => void;
 
-const POLL_INTERVAL_MS = 4000;
+type JevTransition = 'START' | 'CONTINUE' | 'SWITCH' | 'END' | 'UNCERTAIN';
+
+type TeamsTransitionResponse = {
+  supported: boolean;
+  decision: JevTransition;
+  confidence: number;
+  matched_window_title: string | null;
+};
+
+const POLL_INTERVAL_MS = 2000;
+const TEAMS_TRANSITION_URL = 'http://127.0.0.1:8000/api/teams/call-transition';
 export const TEAMS_CALL_SESSION_GRACE_MS = 45 * 60 * 1000;
 
 export type TeamsCallSession = {
@@ -65,9 +72,35 @@ export function isTeamsCallSessionExpired(session: TeamsCallSession, nowMs: numb
   return nowMs >= session.graceExpiresAtMs;
 }
 
+export function applyTeamsTransition(
+  session: TeamsCallSession | null,
+  decision: JevTransition,
+  title: string | null,
+  nowMs: number
+): TeamsCallSession | null {
+  const resolvedTitle = title?.trim() || session?.originalTitle || 'Microsoft Teams call';
+
+  if (decision === 'START') {
+    return session ?? createTeamsCallSession(resolvedTitle, nowMs);
+  }
+  if (decision === 'CONTINUE') {
+    return session
+      ? refreshTeamsCallSession(session, nowMs)
+      : createTeamsCallSession(resolvedTitle, nowMs);
+  }
+  if (decision === 'SWITCH') {
+    return createTeamsCallSession(resolvedTitle, nowMs);
+  }
+  if (decision === 'END') {
+    return null;
+  }
+  return session;
+}
+
 function createInitialStatus(): TeamsCallMonitorStatus {
+  const runtimeProcess = (globalThis as { process?: { platform?: string } }).process;
   return {
-    supported: process.platform === 'win32',
+    supported: runtimeProcess?.platform === 'win32',
     callDetected: false,
     matchedWindowTitle: null,
     sessionStartedAt: null,
@@ -93,11 +126,12 @@ function isStatusEqual(
 
 export function createTeamsCallMonitor() {
   let status = createInitialStatus();
-  let timer: NodeJS.Timeout | null = null;
+  let timer: ReturnType<typeof setInterval> | null = null;
   let enabled = false;
   let polling = false;
   let activeSession: TeamsCallSession | null = null;
   let lastSession: TeamsCallSession | null = null;
+  let manualContinueUntilMs = 0;
   const listeners = new Set<Listener>();
 
   const emit = () => {
@@ -118,7 +152,9 @@ export function createTeamsCallMonitor() {
     emit();
   };
 
-  const buildStatus = (session: TeamsCallSession | null): Omit<TeamsCallMonitorStatus, 'updatedAt'> => ({
+  const buildStatus = (
+    session: TeamsCallSession | null
+  ): Omit<TeamsCallMonitorStatus, 'updatedAt'> => ({
     supported: true,
     callDetected: session !== null,
     matchedWindowTitle: session?.originalTitle ?? null,
@@ -135,35 +171,35 @@ export function createTeamsCallMonitor() {
     polling = true;
     try {
       const nowMs = Date.now();
-      const sources = await desktopCapturer.getSources({
-        types: ['window'],
-        fetchWindowIcons: false,
+      const response = await fetch(TEAMS_TRANSITION_URL, {
+        headers: { Accept: 'application/json' },
+        signal: AbortSignal.timeout(15_000),
       });
-      const matchedSource = sources.find((source) => isLikelyTeamsCallWindow(source.name));
+      if (!response.ok) {
+        throw new Error(`Teams transition request failed: ${response.status}`);
+      }
+      const transition = (await response.json()) as TeamsTransitionResponse;
 
-      if (matchedSource) {
-        activeSession = activeSession
-          ? refreshTeamsCallSession(activeSession, nowMs)
-          : createTeamsCallSession(matchedSource.name, nowMs);
-        lastSession = activeSession;
-        updateStatus(buildStatus(activeSession));
-      } else if (activeSession) {
-        if (isTeamsCallSessionExpired(activeSession, nowMs)) {
-          lastSession = activeSession;
-          activeSession = null;
-          updateStatus(buildStatus(null));
-        } else {
-          updateStatus(buildStatus(activeSession));
-        }
+      if (transition.decision === 'END' && activeSession && nowMs < manualContinueUntilMs) {
+        activeSession = refreshTeamsCallSession(
+          activeSession,
+          nowMs,
+          manualContinueUntilMs - nowMs
+        );
       } else {
-        updateStatus(buildStatus(null));
+        activeSession = applyTeamsTransition(
+          activeSession,
+          transition.decision,
+          transition.matched_window_title,
+          nowMs
+        );
       }
-    } catch {
-      if (activeSession && isTeamsCallSessionExpired(activeSession, Date.now())) {
+      if (activeSession) {
         lastSession = activeSession;
-        activeSession = null;
-        updateStatus(buildStatus(null));
       }
+      updateStatus({ ...buildStatus(activeSession), supported: transition.supported });
+    } catch {
+      // Hold current recording state when local probing or Jev is unavailable.
     } finally {
       polling = false;
     }
@@ -181,6 +217,7 @@ export function createTeamsCallMonitor() {
         polling = false;
         activeSession = null;
         lastSession = null;
+        manualContinueUntilMs = 0;
         updateStatus({
           supported: status.supported,
           callDetected: false,
@@ -222,6 +259,7 @@ export function createTeamsCallMonitor() {
       }
 
       const revivedSession = extendTeamsCallSession(baseSession, Date.now(), extensionMs);
+      manualContinueUntilMs = revivedSession.graceExpiresAtMs;
       activeSession = revivedSession;
       lastSession = revivedSession;
       updateStatus(buildStatus(activeSession));

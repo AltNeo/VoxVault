@@ -21,6 +21,7 @@ from app.services.chutes_client import ChutesClient
 from app.services.gemini_client import GeminiClient
 from app.services.local_whisper_client import LocalWhisperClient
 from app.services.summary_service import SummaryService
+from app.services.teams_call_detector import TeamsCallTransitionService
 from app.services.transcription_provider import TranscriptionProvider
 
 
@@ -63,6 +64,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         backup_service=BackupService(resolved_settings.backup_dir),
         audio_processor=AudioProcessor(),
         summary_service=SummaryService(resolved_settings),
+        teams_call_transition_service=TeamsCallTransitionService(resolved_settings),
         transcription_provider=TranscriptionProvider(
             google_client=GeminiClient(
                 api_key=resolved_settings.gemini_api_key,
