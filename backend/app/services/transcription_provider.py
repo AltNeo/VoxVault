@@ -59,6 +59,21 @@ class TranscriptionProvider:
     def get_transcription_metrics(self) -> dict[str, Any]:
         return self._chutes.get_transcription_metrics()
 
+    async def transcribe_cloud_audio(
+        self,
+        *,
+        audio_path: Path,
+        language: str,
+        prompt: str | None = None,
+    ) -> TranscriptionResult:
+        if not self._google.is_configured():
+            raise APIError(
+                code="CLOUD_TRANSCRIPTION_NOT_CONFIGURED",
+                message="Gemini audio transcription is not configured.",
+                status_code=503,
+            )
+        return await self._google.transcribe_audio(audio_path, language, prompt)
+
     async def transcribe_audio(
         self,
         *,

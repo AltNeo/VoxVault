@@ -107,6 +107,8 @@ def test_upload_mp3_passthrough_flow(client) -> None:
 def test_recover_orphan_recording(client) -> None:
     orphan_path = client.app.state.services.backup_service.backup_dir / "orphan.mp3"
     orphan_path.write_bytes(b"ID3mock-audio")
+    provider = client.app.state.services.transcription_provider
+    provider.transcribe_cloud_audio = provider.transcribe_audio
 
     response = client.post("/api/transcriptions/recover-orphans")
 

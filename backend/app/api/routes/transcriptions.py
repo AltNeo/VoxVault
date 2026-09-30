@@ -274,6 +274,7 @@ async def recover_orphan_recordings(
             custom_prompt=_normalize_custom_prompt(
                 services.storage.get_setting(CUSTOM_PROMPT_SETTING_KEY)
             ),
+            cloud_only=True,
         )
         try:
             record = {
@@ -518,13 +519,19 @@ async def _transcribe_with_chunking(
     audio_path: Path,
     language: str,
     custom_prompt: str | None,
+    cloud_only: bool = False,
 ) -> tuple[TranscriptionResult, Path | None]:
     chunk_paths = services.audio_processor.split_for_max_size(
         audio_path,
         services.settings.max_transcription_chunk_mb,
     )
     if len(chunk_paths) == 1 and chunk_paths[0] == audio_path:
-        return await services.transcription_provider.transcribe_audio(
+        transcribe = (
+            services.transcription_provider.transcribe_cloud_audio
+            if cloud_only
+            else services.transcription_provider.transcribe_audio
+        )
+        return await transcribe(
             audio_path=audio_path,
             language=language,
             prompt=custom_prompt,
@@ -535,7 +542,12 @@ async def _transcribe_with_chunking(
     chunk_offset_seconds = 0.0
 
     for chunk_path in chunk_paths:
-        chunk_result = await services.transcription_provider.transcribe_audio(
+        transcribe = (
+            services.transcription_provider.transcribe_cloud_audio
+            if cloud_only
+            else services.transcription_provider.transcribe_audio
+        )
+        chunk_result = await transcribe(
             audio_path=chunk_path,
             language=language,
             prompt=custom_prompt,
