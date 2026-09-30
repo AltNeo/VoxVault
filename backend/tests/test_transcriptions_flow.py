@@ -104,6 +104,24 @@ def test_upload_mp3_passthrough_flow(client) -> None:
     assert "Mock transcription" in uploaded["text"]
 
 
+def test_recover_orphan_recording(client) -> None:
+    orphan_path = client.app.state.services.backup_service.backup_dir / "orphan.mp3"
+    orphan_path.write_bytes(b"ID3mock-audio")
+
+    response = client.post("/api/transcriptions/recover-orphans")
+
+    assert response.status_code == 200
+    recovered = response.json()
+    assert [item["id"] for item in recovered] == ["orphan"]
+    assert recovered[0]["filename"] == "orphan.mp3"
+    assert recovered[0]["source"] == "recording"
+    assert client.app.state.services.storage.get_transcription("orphan") is not None
+
+    duplicate_response = client.post("/api/transcriptions/recover-orphans")
+    assert duplicate_response.status_code == 200
+    assert duplicate_response.json() == []
+
+
 def test_transcription_prompt_settings_and_upload_override(client, wav_bytes: bytes) -> None:
     initial_prompt_response = client.get("/api/transcription-prompt")
     assert initial_prompt_response.status_code == 200

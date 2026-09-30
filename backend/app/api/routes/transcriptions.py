@@ -37,6 +37,7 @@ SOURCE_FORM = Form("upload")
 CUSTOM_PROMPT_FORM = Form(None)
 LIMIT_QUERY = Query(20, ge=1, le=100)
 OFFSET_QUERY = Query(0, ge=0)
+RECOVERY_LIMIT_QUERY = Query(10, ge=1, le=50)
 CUSTOM_PROMPT_SETTING_KEY = "transcription_custom_prompt"
 SUMMARY_PROMPT_SETTING_KEY = "summary_custom_prompt"
 MAX_CUSTOM_PROMPT_LENGTH = 4000
@@ -242,6 +243,64 @@ async def list_transcriptions(
         "limit": limit,
         "offset": offset,
     }
+
+
+@router.post("/transcriptions/recover-orphans", response_model=list[Transcription])
+async def recover_orphan_recordings(
+    limit: int = RECOVERY_LIMIT_QUERY,
+    services: AppServices = SERVICES_DEP,
+) -> list[dict[str, Any]]:
+    recovered: list[dict[str, Any]] = []
+    allowed_suffixes = {f".{extension.lower()}" for extension in services.settings.allowed_extensions}
+
+    audio_paths = sorted(
+        services.backup_service.backup_dir.iterdir(),
+        key=lambda path: path.stat().st_mtime,
+        reverse=True,
+    )
+    for audio_path in audio_paths:
+        if len(recovered) >= limit:
+            break
+        if not audio_path.is_file() or audio_path.suffix.lower() not in allowed_suffixes:
+            continue
+        transcription_id = audio_path.stem
+        if services.storage.get_transcription(transcription_id) is not None:
+            continue
+
+        transcription_result, chunk_temp_dir = await _transcribe_with_chunking(
+            services=services,
+            audio_path=audio_path,
+            language="en",
+            custom_prompt=_normalize_custom_prompt(
+                services.storage.get_setting(CUSTOM_PROMPT_SETTING_KEY)
+            ),
+        )
+        try:
+            record = {
+                "id": transcription_id,
+                "title": (
+                    "Recovered recording "
+                    f"{datetime.fromtimestamp(audio_path.stat().st_mtime).astimezone():%Y-%m-%d %H:%M}"
+                ),
+                "filename": audio_path.name,
+                "source": "recording",
+                "language": "en",
+                "duration_seconds": services.audio_processor.get_duration_seconds(audio_path),
+                "status": "completed",
+                "text": transcription_result.text,
+                "chunks": transcription_result.chunks,
+                "created_at": datetime.fromtimestamp(
+                    audio_path.stat().st_mtime, timezone.utc
+                ).isoformat(),
+                "audio_path": str(audio_path.resolve()),
+            }
+            services.storage.create_transcription(record)
+            recovered.append(_to_transcription_payload(record, services.settings.api_prefix))
+        finally:
+            if chunk_temp_dir is not None and chunk_temp_dir.exists():
+                shutil.rmtree(chunk_temp_dir, ignore_errors=True)
+
+    return recovered
 
 
 @router.get("/transcriptions/{transcription_id}", response_model=Transcription)
