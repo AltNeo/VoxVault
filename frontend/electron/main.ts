@@ -1,5 +1,5 @@
 import { app, BrowserWindow } from 'electron';
-import { writeFile } from 'node:fs/promises';
+import { appendFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createTeamsCallMonitor } from './teams-call-monitor.js';
@@ -26,6 +26,7 @@ const teamsCallMonitor = createTeamsCallMonitor();
 const STOP_PROMPT_CONTINUE_EXTENSION_MS = 20 * 60 * 1000;
 const teamsIgnoreList = createTeamsIgnoreList();
 const recorderStatusFilePath = path.join(app.getPath('userData'), 'recorder-runtime-status.json');
+const popupDiagnosticLogPath = path.join(app.getPath('userData'), 'popup-diagnostics.jsonl');
 
 let mainWindow: BrowserWindow | null = null;
 let autoRecordPromptWindow: BrowserWindow | null = null;
@@ -45,6 +46,17 @@ let recorderRuntimeStatus: RecorderRuntimeStatus = {
   trigger: null,
   updatedAt: null,
 };
+
+function logPopupDiagnostic(event: string, details: Record<string, unknown> = {}): void {
+  const entry = JSON.stringify({
+    timestamp: new Date().toISOString(),
+    event,
+    ...details,
+  });
+  void appendFile(popupDiagnosticLogPath, `${entry}\n`, 'utf8').catch((error: unknown) => {
+    console.error('Failed to write popup diagnostics.', error);
+  });
+}
 
 if (!app.requestSingleInstanceLock()) {
   app.quit();
@@ -116,6 +128,7 @@ function emitRecorderCommand(command: 'start' | 'stop'): void {
 
 function closeAutoRecordPromptWindow(): void {
   if (autoRecordPromptWindow && !autoRecordPromptWindow.isDestroyed()) {
+    logPopupDiagnostic('close-requested');
     autoRecordPromptWindow.close();
   }
   autoRecordPromptWindow = null;
@@ -182,6 +195,10 @@ function hideMainWindow(): void {
 }
 
 function createAutoRecordPromptWindow(): BrowserWindow {
+  logPopupDiagnostic('window-create', {
+    kind: autoRecordPromptState.kind,
+    titleLength: autoRecordPromptState.title?.length ?? 0,
+  });
   const win = new BrowserWindow({
     width: 500,
     height: 320,
@@ -205,24 +222,57 @@ function createAutoRecordPromptWindow(): BrowserWindow {
   win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
 
   const entryUrl = getRendererEntryUrl('auto-record-prompt');
-  if (entryUrl) {
-    void win.loadURL(entryUrl);
-  } else {
-    void win.loadFile(path.join(__dirname, '../dist/index.html'), {
-      query: {
-        window: 'auto-record-prompt',
-      },
+  const loadPromise = entryUrl
+    ? win.loadURL(entryUrl)
+    : win.loadFile(path.join(__dirname, '../dist/index.html'), {
+        query: {
+          window: 'auto-record-prompt',
+        },
+      });
+
+  void loadPromise.catch((error: unknown) => {
+    logPopupDiagnostic('load-rejected', {
+      error: error instanceof Error ? error.message : String(error),
     });
-  }
+  });
+
+  win.webContents.on('did-start-navigation', (_event, _url, _isInPlace, isMainFrame) => {
+    if (isMainFrame) {
+      logPopupDiagnostic('navigation-started');
+    }
+  });
+  win.webContents.on('dom-ready', () => logPopupDiagnostic('dom-ready'));
+  win.webContents.on('did-finish-load', () => logPopupDiagnostic('load-finished'));
+  win.webContents.on(
+    'did-fail-load',
+    (_event, errorCode, errorDescription, _validatedUrl, isMainFrame) => {
+      if (isMainFrame) {
+        logPopupDiagnostic('load-failed', { errorCode, errorDescription });
+      }
+    }
+  );
+  win.webContents.on('preload-error', (_event, _preloadPath, error) => {
+    logPopupDiagnostic('preload-error', { error: error.message });
+  });
+  win.webContents.on('render-process-gone', (_event, details) => {
+    logPopupDiagnostic('renderer-gone', { ...details });
+  });
 
   win.on('ready-to-show', () => {
+    logPopupDiagnostic('ready-to-show');
     win.show();
     win.focus();
     win.moveTop();
     win.flashFrame(true);
   });
 
+  win.on('show', () => logPopupDiagnostic('shown'));
+  win.on('focus', () => logPopupDiagnostic('focused'));
+  win.on('unresponsive', () => logPopupDiagnostic('unresponsive'));
+  win.on('responsive', () => logPopupDiagnostic('responsive'));
+
   win.on('closed', () => {
+    logPopupDiagnostic('closed');
     autoRecordPromptWindow = null;
     if (autoRecordPromptState.visible) {
       autoRecordPromptState = {
@@ -240,6 +290,7 @@ function createAutoRecordPromptWindow(): BrowserWindow {
 
 async function requestAutoRecordPrompt(title: string): Promise<AutoRecordPromptRequestResult> {
   const normalizedTitle = title.trim();
+  logPopupDiagnostic('start-prompt-requested', { titleLength: normalizedTitle.length });
   if (!normalizedTitle) {
     return { status: 'ignored' };
   }
@@ -269,6 +320,7 @@ async function requestAutoRecordPrompt(title: string): Promise<AutoRecordPromptR
 }
 
 async function requestStopRecordPrompt(): Promise<AutoRecordPromptRequestResult> {
+  logPopupDiagnostic('stop-prompt-requested');
   autoRecordPromptState = {
     visible: true,
     kind: 'stop',
@@ -290,6 +342,7 @@ async function requestStopRecordPrompt(): Promise<AutoRecordPromptRequestResult>
 }
 
 async function respondToAutoRecordPrompt(action: AutoRecordPromptAction): Promise<void> {
+  logPopupDiagnostic('response-received', { action, kind: autoRecordPromptState.kind });
   const title = autoRecordPromptState.title?.trim() ?? '';
   if (autoRecordPromptState.kind === 'start' && !title) {
     closeAutoRecordPromptWindow();
@@ -316,6 +369,13 @@ async function respondToAutoRecordPrompt(action: AutoRecordPromptAction): Promis
 }
 
 app.whenReady().then(() => {
+  logPopupDiagnostic('app-ready', {
+    electronVersion: process.versions.electron,
+    chromeVersion: process.versions.chrome,
+    platform: process.platform,
+    release: process.getSystemVersion(),
+    gpuFeatures: app.getGPUFeatureStatus(),
+  });
   mainWindow = createMainWindow();
   trayController = createTrayController({
     onOpen: showMainWindow,
