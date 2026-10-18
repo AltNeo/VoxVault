@@ -1,7 +1,10 @@
 import { spawn } from 'node:child_process';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
+
+const ffmpegPath = createRequire(import.meta.url)('ffmpeg-static') as string | null;
 
 function inferExtension(mimeType: string): string {
   const normalized = mimeType.toLowerCase();
@@ -25,7 +28,8 @@ function inferExtension(mimeType: string): string {
 
 function runFfmpeg(args: string[]): Promise<void> {
   return new Promise((resolve, reject) => {
-    const child = spawn('ffmpeg', args, {
+    const executable = ffmpegPath?.replace('app.asar', 'app.asar.unpacked') ?? 'ffmpeg';
+    const child = spawn(executable, args, {
       windowsHide: true,
     });
     let stderr = '';

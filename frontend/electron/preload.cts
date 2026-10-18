@@ -16,6 +16,9 @@ type TeamsCallMonitorStatus = {
   supported: boolean;
   callDetected: boolean;
   matchedWindowTitle: string | null;
+  sessionStartedAt: string | null;
+  lastSeenAt: string | null;
+  graceExpiresAt: string | null;
   updatedAt: string | null;
 };
 type RecorderRuntimeStatus = {
@@ -27,10 +30,12 @@ type RecorderRuntimeStatus = {
 };
 type AutoRecordPromptState = {
   visible: boolean;
+  kind: 'start' | 'stop';
   title: string | null;
   updatedAt: string | null;
 };
 type AutoRecordPromptAction = 'confirm' | 'dismiss';
+type RecorderCommand = 'start' | 'stop';
 type AutoRecordPromptRequestResult = {
   status: 'shown' | 'ignored' | 'already-open';
 };
@@ -45,6 +50,7 @@ const GET_TEAMS_IGNORE_LIST_CHANNEL = 'get-teams-ignore-list';
 const ADD_TO_TEAMS_IGNORE_LIST_CHANNEL = 'add-to-teams-ignore-list';
 const GET_AUTO_RECORD_PROMPT_STATE_CHANNEL = 'get-auto-record-prompt-state';
 const REQUEST_AUTO_RECORD_PROMPT_CHANNEL = 'request-auto-record-prompt';
+const REQUEST_STOP_RECORD_PROMPT_CHANNEL = 'request-stop-record-prompt';
 const RESPOND_TO_AUTO_RECORD_PROMPT_CHANNEL = 'respond-to-auto-record-prompt';
 const AUTO_RECORD_PROMPT_STATE_CHANGED_CHANNEL = 'auto-record-prompt-state-changed';
 const AUTO_RECORD_PROMPT_ACTION_CHANNEL = 'auto-record-prompt-action';
@@ -52,6 +58,7 @@ const TEAMS_CALL_MONITOR_STATUS_CHANGED_CHANNEL = 'teams-call-monitor-status-cha
 const GET_RECORDER_RUNTIME_STATUS_CHANNEL = 'get-recorder-runtime-status';
 const SET_RECORDER_RUNTIME_STATUS_CHANNEL = 'set-recorder-runtime-status';
 const RECORDER_RUNTIME_STATUS_CHANGED_CHANNEL = 'recorder-runtime-status-changed';
+const RECORDER_COMMAND_CHANNEL = 'recorder-command';
 
 contextBridge.exposeInMainWorld('electronAPI', {
   getAudioSources: async (): Promise<AudioSource[]> => {
@@ -81,10 +88,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
   requestAutoRecordPrompt: async (title: string): Promise<AutoRecordPromptRequestResult> => {
     return ipcRenderer.invoke(REQUEST_AUTO_RECORD_PROMPT_CHANNEL, title);
   },
+  requestStopRecordPrompt: async (): Promise<AutoRecordPromptRequestResult> => {
+    return ipcRenderer.invoke(REQUEST_STOP_RECORD_PROMPT_CHANNEL);
+  },
   respondToAutoRecordPrompt: async (action: AutoRecordPromptAction): Promise<void> => {
     return ipcRenderer.invoke(RESPOND_TO_AUTO_RECORD_PROMPT_CHANNEL, action);
   },
-  onAutoRecordPromptStateChanged: (listener: (state: AutoRecordPromptState) => void): (() => void) => {
+  onAutoRecordPromptStateChanged: (
+    listener: (state: AutoRecordPromptState) => void
+  ): (() => void) => {
     const wrappedListener = (_event: Electron.IpcRendererEvent, state: AutoRecordPromptState) => {
       listener(state);
     };
@@ -139,6 +151,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on(RECORDER_RUNTIME_STATUS_CHANGED_CHANNEL, wrappedListener);
     return () => {
       ipcRenderer.removeListener(RECORDER_RUNTIME_STATUS_CHANGED_CHANNEL, wrappedListener);
+    };
+  },
+  onRecorderCommand: (listener: (command: RecorderCommand) => void): (() => void) => {
+    const wrappedListener = (_event: Electron.IpcRendererEvent, command: RecorderCommand) => {
+      listener(command);
+    };
+
+    ipcRenderer.on(RECORDER_COMMAND_CHANNEL, wrappedListener);
+    return () => {
+      ipcRenderer.removeListener(RECORDER_COMMAND_CHANNEL, wrappedListener);
     };
   },
   convertAudioToMp3: async (audioBytes: Uint8Array, mimeType: string): Promise<Uint8Array> => {

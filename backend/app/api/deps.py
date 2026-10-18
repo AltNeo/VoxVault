@@ -11,6 +11,7 @@ from app.services.transcription_provider import TranscriptionProvider
 if TYPE_CHECKING:
     from app.core.config import Settings
     from app.services.summary_service import SummaryService
+    from app.services.teams_call_detector import TeamsCallTransitionService
 
 
 @dataclass(slots=True)
@@ -21,6 +22,7 @@ class AppServices:
     audio_processor: AudioProcessor
     transcription_provider: TranscriptionProvider
     summary_service: "SummaryService"
+    teams_call_transition_service: "TeamsCallTransitionService"
 
 
 def get_services(request: Request) -> AppServices:

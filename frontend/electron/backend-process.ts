@@ -1,4 +1,5 @@
 import { app } from 'electron';
+import { existsSync } from 'node:fs';
 import { spawn, type ChildProcess } from 'node:child_process';
 import path from 'node:path';
 
@@ -29,10 +30,17 @@ function resolveBackendPath(): string {
   return path.join(resolveRepoRoot(), 'backend');
 }
 
+export function resolveBackendPythonPath(): string {
+  const executable = process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python';
+  const venvPythonPath = path.join(resolveBackendPath(), '.venv', executable);
+
+  return existsSync(venvPythonPath) ? venvPythonPath : 'python';
+}
+
 function resolveBackendCommand(): string {
   return (
     process.env.VOXVAULT_BACKEND_CMD ??
-    `python -m uvicorn app.main:app --host 127.0.0.1 --port ${DEFAULT_BACKEND_PORT}`
+    `"${resolveBackendPythonPath()}" -m uvicorn app.main:app --host 127.0.0.1 --port ${DEFAULT_BACKEND_PORT}`
   );
 }
 

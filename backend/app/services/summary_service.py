@@ -79,6 +79,10 @@ class SummaryService:
                 message="Transcript text is required.",
                 status_code=400,
             )
+        # Summary generation is an on-demand feature; avoid loading/downloading the
+        # GGUF model during application startup when no summary will be requested.
+        if not self.is_ready():
+            await self.warmup()
 
         if not self.is_ready():
             raise APIError(

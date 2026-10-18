@@ -14,6 +14,7 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         extra="ignore",
     )
+    gemini_model: str = "gemini-3.5-flash"
 
     app_name: str = "Transcription API"
     app_version: str = "1.0.0"
@@ -47,12 +48,29 @@ class Settings(BaseSettings):
     summary_n_threads: int = 4
     summary_fallback_enabled: bool = True
     summary_fallback_max_sentences: int = 6
+    gemini_api_key: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("GEMINI_API_KEY", "GOOGLE_API_KEY"),
+    )
 
     chutes_api_url: str | None = None
     chutes_api_key: str | None = Field(
         default=None,
         validation_alias=AliasChoices("CHUTES_API_KEY", "CHUTES_API_TOKEN"),
     )
+    typesafe_api_key: str | None = None
+    typesafe_model: str = "jev-1.13.0"
+    typesafe_timeout_seconds: float = 3.0
+    typesafe_transition_confidence: float = 0.8
+    calendar_signal_path: Path = (
+        Path.home()
+        / "OneDrive - Anheuser-Busch InBev"
+        / "Documents"
+        / "Experiment"
+        / "Routines"
+        / "calendar-signal.json"
+    )
+    calendar_signal_refresh_seconds: float = 30 * 60
 
 
 @lru_cache

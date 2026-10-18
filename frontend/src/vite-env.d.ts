@@ -16,6 +16,9 @@ type ElectronTeamsCallMonitorStatus = {
   supported: boolean;
   callDetected: boolean;
   matchedWindowTitle: string | null;
+  sessionStartedAt: string | null;
+  lastSeenAt: string | null;
+  graceExpiresAt: string | null;
   updatedAt: string | null;
 };
 type ElectronRecorderRuntimeStatus = {
@@ -27,10 +30,12 @@ type ElectronRecorderRuntimeStatus = {
 };
 type ElectronAutoRecordPromptState = {
   visible: boolean;
+  kind: 'start' | 'stop';
   title: string | null;
   updatedAt: string | null;
 };
 type ElectronAutoRecordPromptAction = 'confirm' | 'dismiss';
+type ElectronRecorderCommand = 'start' | 'stop';
 type ElectronAutoRecordPromptRequestResult = {
   status: 'shown' | 'ignored' | 'already-open';
 };
@@ -45,6 +50,7 @@ interface ElectronAPI {
   addToTeamsIgnoreList: (title: string) => Promise<string[]>;
   getAutoRecordPromptState: () => Promise<ElectronAutoRecordPromptState>;
   requestAutoRecordPrompt: (title: string) => Promise<ElectronAutoRecordPromptRequestResult>;
+  requestStopRecordPrompt: () => Promise<ElectronAutoRecordPromptRequestResult>;
   respondToAutoRecordPrompt: (action: ElectronAutoRecordPromptAction) => Promise<void>;
   onAutoRecordPromptStateChanged: (
     listener: (state: ElectronAutoRecordPromptState) => void
@@ -62,6 +68,7 @@ interface ElectronAPI {
   onRecorderRuntimeStatusChanged: (
     listener: (status: ElectronRecorderRuntimeStatus) => void
   ) => () => void;
+  onRecorderCommand: (listener: (command: ElectronRecorderCommand) => void) => () => void;
   convertAudioToMp3: (audioBytes: Uint8Array, mimeType: string) => Promise<Uint8Array>;
 }
 

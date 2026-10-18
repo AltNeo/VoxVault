@@ -17,9 +17,12 @@ from app.core.exceptions import APIError, build_error_payload
 from app.db.storage import TranscriptionStorage
 from app.services.audio_processor import AudioProcessor
 from app.services.backup_service import BackupService
+from app.services.calendar_signal import CalendarSignalService
 from app.services.chutes_client import ChutesClient
+from app.services.gemini_client import GeminiClient
 from app.services.local_whisper_client import LocalWhisperClient
 from app.services.summary_service import SummaryService
+from app.services.teams_call_detector import TeamsCallTransitionService
 from app.services.transcription_provider import TranscriptionProvider
 
 
@@ -39,10 +42,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             await services.transcription_provider.warmup()
         except APIError:
             transaction_logger.exception("local.whisper.warmup_failed")
-        try:
-            await services.summary_service.warmup()
-        except Exception:
-            transaction_logger.exception("summary.model.warmup_failed")
+        # Load the optional, heavyweight summary model only when a summary is requested.
+        # Keeping it out of the lifespan makes the API responsive during app startup.
         yield
 
     app = FastAPI(
@@ -58,13 +59,26 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         timeout_seconds=resolved_settings.request_timeout_seconds,
         storage=storage,
     )
+    calendar_signal_service = CalendarSignalService(
+        resolved_settings.calendar_signal_path,
+        resolved_settings.calendar_signal_refresh_seconds,
+    )
     app.state.services = AppServices(
         settings=resolved_settings,
         storage=storage,
         backup_service=BackupService(resolved_settings.backup_dir),
         audio_processor=AudioProcessor(),
         summary_service=SummaryService(resolved_settings),
+        teams_call_transition_service=TeamsCallTransitionService(
+            resolved_settings,
+            calendar_signal_service,
+        ),
         transcription_provider=TranscriptionProvider(
+            google_client=GeminiClient(
+                api_key=resolved_settings.gemini_api_key,
+                model=resolved_settings.gemini_model,
+                timeout_seconds=resolved_settings.request_timeout_seconds,
+            ),
             local_client=LocalWhisperClient(
                 enabled=resolved_settings.local_transcription_enabled,
                 model_size=resolved_settings.local_transcription_model_size,

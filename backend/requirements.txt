@@ -3,6 +3,8 @@ uvicorn[standard]==0.35.0
 python-multipart==0.0.20
 httpx==0.28.1
 pydantic-settings==2.10.1
+psutil==7.1.0
+pywinauto==0.6.9
 imageio-ffmpeg==0.6.0
 pytest==8.4.1
 faster-whisper==1.2.1
