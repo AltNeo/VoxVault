@@ -152,7 +152,7 @@ voxvault/
 | `GEMINI_API_KEY` / `GOOGLE_API_KEY` | `backend/.env` | Google AI Studio key for Gemini audio transcription |
 | `GEMINI_MODEL` | `backend/.env` | Gemini model used for audio transcription |
 | `ALLOWED_ORIGINS` | `backend/app/core/config.py` | CORS origins |
-| `MAX_UPLOAD_SIZE_MB` | `backend/app/core/config.py` | File size limit (default: 18MB) |
+| `MAX_UPLOAD_SIZE_MB` | `backend/app/core/config.py` | File size limit (default: 300MB; audio is split into chunks before transcription) |
 
 ---
 
