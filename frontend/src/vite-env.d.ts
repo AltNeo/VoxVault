@@ -34,7 +34,7 @@ type ElectronAutoRecordPromptState = {
   title: string | null;
   updatedAt: string | null;
 };
-type ElectronAutoRecordPromptAction = 'confirm' | 'dismiss';
+type ElectronAutoRecordPromptAction = 'confirm' | 'dismiss' | 'ignore';
 type ElectronRecorderCommand = 'start' | 'stop';
 type ElectronAutoRecordPromptRequestResult = {
   status: 'shown' | 'ignored' | 'already-open';

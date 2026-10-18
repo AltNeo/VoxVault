@@ -34,7 +34,7 @@ type AutoRecordPromptState = {
   title: string | null;
   updatedAt: string | null;
 };
-type AutoRecordPromptAction = 'confirm' | 'dismiss';
+type AutoRecordPromptAction = 'confirm' | 'dismiss' | 'ignore';
 type RecorderCommand = 'start' | 'stop';
 type AutoRecordPromptRequestResult = {
   status: 'shown' | 'ignored' | 'already-open';
