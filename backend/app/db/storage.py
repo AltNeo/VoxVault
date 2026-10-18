@@ -132,6 +132,27 @@ class TranscriptionStorage:
             return None
         return self._deserialize(dict(row))
 
+    def update_transcription_result(
+        self,
+        transcription_id: str,
+        *,
+        status: str,
+        text: str,
+        chunks: list[dict[str, Any]],
+        duration_seconds: float | None,
+    ) -> bool:
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute(
+                """
+                UPDATE transcriptions
+                SET status = ?, text = ?, chunks_json = ?, duration_seconds = ?
+                WHERE id = ?
+                """,
+                (status, text, json.dumps(chunks), duration_seconds, transcription_id),
+            )
+            conn.commit()
+        return cursor.rowcount > 0
+
     def list_transcriptions(self, *, limit: int, offset: int) -> list[dict[str, Any]]:
         with sqlite3.connect(self.db_path) as conn:
             conn.row_factory = sqlite3.Row

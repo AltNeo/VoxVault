@@ -27,6 +27,11 @@ class SummaryService:
         self._backend = "unavailable"
         self._backend_detail = "Summary model is not loaded."
         self._lock = threading.RLock()
+        # The extractive fallback needs no model, so it is ready immediately when the
+        # local model is disabled; otherwise the model loads on the first summary request.
+        if not settings.summary_model_enabled and settings.summary_fallback_enabled:
+            self._backend = "extractive-fallback"
+            self._backend_detail = "Using built-in extractive summary fallback."
 
     async def warmup(self) -> None:
         try:

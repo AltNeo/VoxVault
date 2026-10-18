@@ -30,7 +30,9 @@ class Settings(BaseSettings):
     sqlite_path: Path = Path("transcriptions.db")
     diagnostics_log_path: Path = Path("diagnostics/transactions.log")
 
-    max_upload_size_mb: int = 18
+    # Long calls exceed the per-request provider limit; uploads are split into chunks of
+    # max_transcription_chunk_mb before transcription, so the upload cap can be generous.
+    max_upload_size_mb: int = 300
     max_transcription_chunk_mb: int = 18
     request_timeout_seconds: float = 60.0
     allowed_extensions: set[str] = {"wav", "mp3", "m4a", "webm"}
