@@ -25,7 +25,9 @@ export default function Home() {
     history,
     activeTranscription,
     transcriptionPrompt,
-    isLoading,
+    isUploading,
+    isLoadingDetail,
+    isRetrying,
     isHistoryLoading,
     isPromptLoading,
     isPromptSaving,
@@ -38,16 +40,16 @@ export default function Home() {
     saveTranscriptionEdits,
     loadHistory,
     selectTranscription,
+    retryTranscription,
     generateSummary,
   } = useTranscription();
 
   const [pendingAudio, setPendingAudio] = useState<PendingAudio | null>(null);
-  const [historyOpen, setHistoryOpen] = useState(true);
+  const [historyQuery, setHistoryQuery] = useState('');
   const [inputMode, setInputMode] = useState<'record' | 'upload'>('record');
-  const [promptSectionOpen, setPromptSectionOpen] = useState(false);
+  const [promptsOpen, setPromptsOpen] = useState(false);
   const [promptDraft, setPromptDraft] = useState('');
   const [promptStatus, setPromptStatus] = useState<string | null>(null);
-  const [summaryPromptSectionOpen, setSummaryPromptSectionOpen] = useState(false);
   const [summaryPrompt, setSummaryPrompt] = useState('');
   const [summaryPromptDraft, setSummaryPromptDraft] = useState('');
   const [summaryPromptStatus, setSummaryPromptStatus] = useState<string | null>(null);
@@ -118,7 +120,13 @@ export default function Home() {
 
   const handleSubmit = useCallback(async () => {
     if (!pendingAudio) return;
-    await uploadAudio(pendingAudio.file, pendingAudio.source, promptDraft);
+    const submitted = pendingAudio.previewUrl;
+    try {
+      await uploadAudio(pendingAudio.file, pendingAudio.source, promptDraft);
+    } catch {
+      return;
+    }
+    setPendingAudio((current) => (current?.previewUrl === submitted ? null : current));
   }, [pendingAudio, promptDraft, uploadAudio]);
 
   const clearPendingAudio = useCallback(() => {
@@ -127,7 +135,7 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    if (!pendingAudio || pendingAudio.source !== 'recording' || isLoading) {
+    if (!pendingAudio || pendingAudio.source !== 'recording' || isUploading) {
       return;
     }
 
@@ -148,32 +156,27 @@ export default function Home() {
         });
       })
       .catch(() => undefined);
-  }, [isLoading, pendingAudio, promptDraft, uploadAudio]);
+  }, [isUploading, pendingAudio, promptDraft, uploadAudio]);
 
-  const handlePromptToggle = useCallback(() => {
-    setPromptSectionOpen((current) => {
+  const handlePromptsToggle = useCallback(() => {
+    setPromptsOpen((current) => {
       const next = !current;
       if (next) {
         void loadTranscriptionPrompt();
-      }
-      return next;
-    });
-  }, [loadTranscriptionPrompt]);
-
-  const handlePromptSave = useCallback(async () => {
-    await saveTranscriptionPrompt(promptDraft);
-    setPromptStatus('Prompt updated.');
-  }, [promptDraft, saveTranscriptionPrompt]);
-
-  const handleSummaryPromptToggle = useCallback(() => {
-    setSummaryPromptSectionOpen((current) => {
-      const next = !current;
-      if (next) {
         void loadSummaryPrompt();
       }
       return next;
     });
-  }, [loadSummaryPrompt]);
+  }, [loadSummaryPrompt, loadTranscriptionPrompt]);
+
+  const handlePromptSave = useCallback(async () => {
+    try {
+      await saveTranscriptionPrompt(promptDraft);
+      setPromptStatus('Saved.');
+    } catch (saveError) {
+      setPromptStatus(saveError instanceof Error ? saveError.message : 'Could not save.');
+    }
+  }, [promptDraft, saveTranscriptionPrompt]);
 
   const handleSummaryPromptSave = useCallback(async () => {
     setIsSummaryPromptSaving(true);
@@ -181,7 +184,7 @@ export default function Home() {
       const result = await api.updateSummaryPrompt(summaryPromptDraft);
       setSummaryPrompt(result.custom_prompt);
       setSummaryPromptDraft(result.custom_prompt);
-      setSummaryPromptStatus('Summary prompt updated.');
+      setSummaryPromptStatus('Saved.');
     } catch (saveError) {
       const message =
         saveError instanceof Error ? saveError.message : 'Failed to update summary prompt.';
@@ -191,14 +194,6 @@ export default function Home() {
     }
   }, [summaryPromptDraft]);
 
-  const handleSelectHistory = useCallback(
-    async (id: string) => {
-      await selectTranscription(id);
-      setHistoryOpen(false);
-    },
-    [selectTranscription]
-  );
-
   const handleGenerateSummary = useCallback(
     async (id: string, customPrompt?: string) => {
       await generateSummary(id, customPrompt);
@@ -207,259 +202,209 @@ export default function Home() {
     [generateSummary, loadHistory]
   );
 
-  const playerSource = useMemo(() => {
-    if (pendingAudio?.previewUrl) return pendingAudio.previewUrl;
-    if (activeTranscription?.audio_url) return activeTranscription.audio_url;
-    return null;
-  }, [activeTranscription?.audio_url, pendingAudio?.previewUrl]);
+  const filteredHistory = useMemo(() => {
+    const query = historyQuery.trim().toLowerCase();
+    if (!query) return history;
+    return history.filter(
+      (item) =>
+        item.title.toLowerCase().includes(query) || item.text.toLowerCase().includes(query)
+    );
+  }, [history, historyQuery]);
+
+  const activeAudioUrl = useMemo(() => {
+    if (!activeTranscription) return null;
+    return activeTranscription.audio_url || api.getAudioUrl(activeTranscription.id);
+  }, [activeTranscription]);
 
   return (
-    <div className="void">
-      <div className="void__orb void__orb--1" />
-      <div className="void__orb void__orb--2" />
-      <div className="void__orb void__orb--3" />
-      <div className="void__watermark">VoxVault by AltNeo</div>
-      <div
-        className={`void__scrim ${historyOpen ? 'void__scrim--visible' : ''}`}
-        onClick={() => setHistoryOpen(false)}
-      />
-
-      <header className="topbar">
+    <div className="app">
+      <aside className="sidebar card" aria-label="Recordings">
         <div className="brand">
-          <img src="/icon.svg" alt="VoxVault" className="brand__mark" />
-          <span className="brand__name">VoxVault</span>
+          <span className="brand__mark" aria-hidden="true" />
+          <span>VoxVault</span>
         </div>
-        <ProviderStatusIndicator />
-        <div className="topbar__actions">
-          <button
-            type="button"
-            className={`history-toggle ${promptSectionOpen ? 'history-toggle--active' : ''}`}
-            onClick={handlePromptToggle}
-            aria-label="Toggle known misspellings"
-          >
-            <span className="history-toggle__icon">
-              {promptSectionOpen ? 'Hide Misspellings' : 'Known Misspellings'}
-            </span>
-          </button>
-          <button
-            type="button"
-            className={`history-toggle ${summaryPromptSectionOpen ? 'history-toggle--active' : ''}`}
-            onClick={handleSummaryPromptToggle}
-            aria-label="Toggle summary prompt"
-          >
-            <span className="history-toggle__icon">
-              {summaryPromptSectionOpen ? 'Hide Summary' : 'Summary Prompt'}
-            </span>
-          </button>
-          <button
-            type="button"
-            className={`history-toggle ${historyOpen ? 'history-toggle--active' : ''}`}
-            onClick={() => setHistoryOpen((current) => !current)}
-            aria-label="Toggle history panel"
-          >
-            <span className="history-toggle__icon">{historyOpen ? 'Close' : 'Open'}</span>
-            <span className="history-toggle__count">{history.length}</span>
-          </button>
-        </div>
+        <input
+          id="history-search"
+          className="search"
+          type="search"
+          placeholder="Search recordings"
+          value={historyQuery}
+          onChange={(event) => setHistoryQuery(event.target.value)}
+        />
+        <TranscriptionHistory
+          items={filteredHistory}
+          activeId={activeTranscription?.id}
+          isLoading={isHistoryLoading}
+          emptyMessage={historyQuery.trim() ? 'No recordings match your search.' : undefined}
+          onSelect={(id) => void selectTranscription(id)}
+        />
+      </aside>
 
-        {promptSectionOpen && (
-          <div className="prompt-popover">
-            <label className="field-block__label" htmlFor="custom-prompt">
-              Corrections Prompt
-            </label>
-            <textarea
-              id="custom-prompt"
-              className="transcription-body prompt-panel__input"
-              value={promptDraft}
-              onChange={(event) => {
-                setPromptDraft(event.target.value);
-                if (promptStatus) {
+      <main className="main">
+        <header className="head">
+          <h1>Recordings</h1>
+          <div className="head__actions">
+            <ProviderStatusIndicator />
+            <button
+              type="button"
+              className={`btn ${promptsOpen ? 'btn--selected' : ''}`}
+              onClick={handlePromptsToggle}
+              aria-expanded={promptsOpen}
+            >
+              Prompts
+            </button>
+          </div>
+        </header>
+
+        {error && (
+          <div className="banner banner--error" role="alert">
+            {error}
+          </div>
+        )}
+
+        {promptsOpen && (
+          <section className="card prompts" aria-label="Prompts">
+            <div className="prompts__field">
+              <label htmlFor="custom-prompt">Spelling corrections</label>
+              <p className="hint">Sent with every transcription to fix names and terms it gets wrong.</p>
+              <textarea
+                id="custom-prompt"
+                value={promptDraft}
+                onChange={(event) => {
+                  setPromptDraft(event.target.value);
                   setPromptStatus(null);
-                }
-              }}
-              placeholder="Examples: teh -> the, recieve -> receive, Jon Smyth -> John Smith"
-              disabled={isPromptLoading || isPromptSaving}
-            />
-            <p className="muted muted--hint">
-              This text is sent with each transcription to help fix known misspellings.
-            </p>
-            <div className="button-row">
-              <button
-                type="button"
-                className="btn btn--primary"
-                onClick={() => void handlePromptSave()}
+                }}
+                placeholder="Examples: teh -> the, Jon Smyth -> John Smith"
                 disabled={isPromptLoading || isPromptSaving}
-              >
-                {isPromptSaving ? 'Updating...' : 'Update Prompt'}
-              </button>
-              <button
-                type="button"
-                className="btn btn--ghost"
-                onClick={() => setPromptDraft(transcriptionPrompt)}
-                disabled={isPromptLoading || isPromptSaving}
-              >
-                Reset
-              </button>
+              />
+              <div className="row">
+                <button
+                  type="button"
+                  className="btn btn--primary"
+                  onClick={() => void handlePromptSave()}
+                  disabled={isPromptLoading || isPromptSaving}
+                >
+                  {isPromptSaving ? 'Saving…' : 'Save'}
+                </button>
+                <button
+                  type="button"
+                  className="btn"
+                  onClick={() => setPromptDraft(transcriptionPrompt)}
+                  disabled={isPromptLoading || isPromptSaving}
+                >
+                  Reset
+                </button>
+                {promptStatus && <span className="hint">{promptStatus}</span>}
+              </div>
             </div>
-            {promptStatus && <span className="prompt-toolbar__status">{promptStatus}</span>}
-          </div>
-        )}
-
-        {summaryPromptSectionOpen && (
-          <div className="prompt-popover prompt-popover--summary">
-            <label className="field-block__label" htmlFor="summary-prompt">
-              Summary Prompt
-            </label>
-            <textarea
-              id="summary-prompt"
-              className="transcription-body prompt-panel__input"
-              value={summaryPromptDraft}
-              onChange={(event) => {
-                setSummaryPromptDraft(event.target.value);
-                if (summaryPromptStatus) {
+            <div className="prompts__field">
+              <label htmlFor="summary-prompt">Summary instructions</label>
+              <p className="hint">Shapes every summary. Leave empty to use the default sections.</p>
+              <textarea
+                id="summary-prompt"
+                value={summaryPromptDraft}
+                onChange={(event) => {
+                  setSummaryPromptDraft(event.target.value);
                   setSummaryPromptStatus(null);
-                }
-              }}
-              placeholder="You are a meeting summarizer. Given a transcript, produce key topics, decisions, action items, and a brief summary."
-              disabled={isSummaryPromptLoading || isSummaryPromptSaving}
-            />
-            <p className="muted muted--hint">
-              This prompt shapes the summary model&apos;s output for every generated summary.
-            </p>
-            <div className="button-row">
-              <button
-                type="button"
-                className="btn btn--primary"
-                onClick={() => void handleSummaryPromptSave()}
+                }}
+                placeholder="Key topics, decisions, action items with owners, and a short summary."
                 disabled={isSummaryPromptLoading || isSummaryPromptSaving}
-              >
-                {isSummaryPromptSaving ? 'Saving...' : 'Save Prompt'}
-              </button>
-              <button
-                type="button"
-                className="btn btn--ghost"
-                onClick={() => setSummaryPromptDraft(summaryPrompt)}
-                disabled={isSummaryPromptLoading || isSummaryPromptSaving}
-              >
-                Reset
-              </button>
+              />
+              <div className="row">
+                <button
+                  type="button"
+                  className="btn btn--primary"
+                  onClick={() => void handleSummaryPromptSave()}
+                  disabled={isSummaryPromptLoading || isSummaryPromptSaving}
+                >
+                  {isSummaryPromptSaving ? 'Saving…' : 'Save'}
+                </button>
+                <button
+                  type="button"
+                  className="btn"
+                  onClick={() => setSummaryPromptDraft(summaryPrompt)}
+                  disabled={isSummaryPromptLoading || isSummaryPromptSaving}
+                >
+                  Reset
+                </button>
+                {summaryPromptStatus && <span className="hint">{summaryPromptStatus}</span>}
+              </div>
             </div>
-            {summaryPromptStatus && (
-              <span className="prompt-toolbar__status">{summaryPromptStatus}</span>
-            )}
-          </div>
+          </section>
         )}
-      </header>
 
-      <main className={`workspace ${historyOpen ? 'workspace--history-open' : ''}`}>
-        {error && <div className="toast toast--error">{error}</div>}
+        <section className="card capture" aria-label="Capture audio">
+          <div className="seg" role="tablist" aria-label="Record or upload">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={inputMode === 'record'}
+              onClick={() => setInputMode('record')}
+            >
+              Record
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={inputMode === 'upload'}
+              onClick={() => setInputMode('upload')}
+            >
+              Upload a file
+            </button>
+          </div>
 
-        <section className="workspace__controls">
-          <div className="module panel panel--controls">
-            <div className="panel__header">
-              <h2>Capture Input</h2>
-            </div>
+          {/* The recorder stays mounted so switching tabs never drops a recording in progress. */}
+          <div hidden={inputMode !== 'record'}>
+            <AudioRecorder onRecorded={handleRecorded} />
+          </div>
+          <div hidden={inputMode !== 'upload'}>
+            <FileUploader disabled={isUploading} onFileSelected={handleFilePicked} />
+          </div>
 
-            <div className="dock__modes">
-              <button
-                type="button"
-                className={`dock__mode ${inputMode === 'record' ? 'dock__mode--active' : ''}`}
-                onClick={() => setInputMode('record')}
-              >
-                Record
-              </button>
-              <button
-                type="button"
-                className={`dock__mode ${inputMode === 'upload' ? 'dock__mode--active' : ''}`}
-                onClick={() => setInputMode('upload')}
-              >
-                Upload
-              </button>
-            </div>
-
-            <div className="dock__panel">
-              {inputMode === 'record' ? (
-                <AudioRecorder disabled={isLoading} onRecorded={handleRecorded} />
-              ) : (
-                <FileUploader disabled={isLoading} onFileSelected={handleFilePicked} />
-              )}
-            </div>
-
-            {playerSource && (
-              <div className="dock__preview">
-                <audio src={playerSource} controls />
-                {pendingAudio && (
-                  <div className="dock__preview-meta">
-                    <span className="dock__filename">
-                      {pendingAudio.file.name} ({formatBytes(pendingAudio.file.size)})
-                    </span>
+          {(pendingAudio || isUploading) && (
+            <div className="pending">
+              {pendingAudio && <audio src={pendingAudio.previewUrl} controls />}
+              <div className="pending__row">
+                <span className="pending__name">
+                  {isUploading
+                    ? 'Transcribing… you can keep browsing while this runs.'
+                    : pendingAudio
+                      ? `${pendingAudio.file.name} · ${formatBytes(pendingAudio.file.size)}`
+                      : null}
+                </span>
+                {pendingAudio && !isUploading && (
+                  <>
+                    <button type="button" className="btn" onClick={clearPendingAudio}>
+                      {pendingAudio.source === 'recording' ? 'Discard' : 'Remove'}
+                    </button>
                     <button
                       type="button"
-                      className="btn btn--ghost dock__preview-delete"
-                      onClick={clearPendingAudio}
-                      disabled={isLoading}
+                      className="btn btn--primary"
+                      onClick={() => void handleSubmit()}
                     >
-                      {pendingAudio.source === 'recording' ? 'Delete recording' : 'Remove upload'}
+                      Transcribe
                     </button>
-                  </div>
+                  </>
                 )}
+                {isUploading && <span className="spinner" aria-hidden="true" />}
               </div>
-            )}
-
-            <button
-              type="button"
-              className={`dock__action ${isLoading ? 'dock__action--loading' : ''}`}
-              disabled={isLoading || !pendingAudio}
-              onClick={() => void handleSubmit()}
-            >
-              {isLoading ? (
-                <>
-                  <span className="spinner" />
-                  <span>Processing...</span>
-                </>
-              ) : (
-                <>
-                  <span className="dock__action-icon">Start</span>
-                  <span>Transcribe</span>
-                </>
-              )}
-            </button>
-          </div>
+            </div>
+          )}
         </section>
 
-        <section className="workspace__transcript">
-          <div className="transcript-hero">
-            <TranscriptionView
-              transcription={activeTranscription}
-              isLoading={isLoading}
-              isSaving={isSavingEdits}
-              isSummarizing={isSummarizing}
-              onSave={async (id, title, text) => {
-                await saveTranscriptionEdits(id, title, text);
-              }}
-              onGenerateSummary={handleGenerateSummary}
-            />
-          </div>
-        </section>
-
-        <aside className={`history-panel ${historyOpen ? 'history-panel--open' : ''}`}>
-          <div className="history-panel__header">
-            <h2>History</h2>
-            <button
-              type="button"
-              className="history-panel__close"
-              onClick={() => setHistoryOpen(false)}
-            >
-              Close
-            </button>
-          </div>
-          <TranscriptionHistory
-            items={history}
-            activeId={activeTranscription?.id}
-            isLoading={isHistoryLoading}
-            onSelect={(id) => void handleSelectHistory(id)}
-          />
-        </aside>
+        <TranscriptionView
+          transcription={activeTranscription}
+          audioUrl={activeAudioUrl}
+          isLoading={isLoadingDetail}
+          isSaving={isSavingEdits}
+          isSummarizing={isSummarizing}
+          isRetrying={isRetrying}
+          onSave={async (id, title, text) => {
+            await saveTranscriptionEdits(id, title, text).catch(() => undefined);
+          }}
+          onGenerateSummary={handleGenerateSummary}
+          onRetry={retryTranscription}
+        />
       </main>
     </div>
   );

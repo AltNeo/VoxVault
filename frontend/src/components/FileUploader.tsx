@@ -59,12 +59,7 @@ export default function FileUploader({ disabled = false, onFileSelected }: FileU
   );
 
   return (
-    <section className="module">
-      <div className="module__head">
-        <h3>File Uploader</h3>
-      </div>
-      <p className="muted">Drop an audio file or browse your local storage.</p>
-
+    <div className="uploader">
       <label
         className={`dropzone ${isDragging ? 'dropzone--active' : ''} ${
           disabled ? 'dropzone--disabled' : ''
@@ -85,11 +80,11 @@ export default function FileUploader({ disabled = false, onFileSelected }: FileU
           onChange={handleInputChange}
           hidden
         />
-        <strong>Drop audio here</strong>
-        <span>or click to select</span>
+        <strong>Drag an audio file here, or browse</strong>
+        <span>MP3, WAV, M4A or WebM</span>
       </label>
 
       {error && <p className="error-text">{error}</p>}
-    </section>
+    </div>
   );
 }

@@ -84,128 +84,87 @@ export default function AudioRecorder({ disabled = false, onRecorded }: AudioRec
     };
   }, [audioBlob, audioUrl, onRecorded, recordingBaseName]);
 
+  const isRecording = status === 'recording';
+  const statusLabel = isRecording
+    ? activeRecordingTrigger === 'auto'
+      ? `Recording ${recordingBaseName}`
+      : 'Recording your call'
+    : status === 'stopped'
+      ? 'Recording saved'
+      : 'Ready when you are';
+  const teamsHint = !teamsCallMonitorSupported
+    ? 'Auto-record needs the desktop app with system audio.'
+    : !autoTeamsRecordEnabled
+      ? 'Turn on to get a prompt when a Teams call starts.'
+      : teamsCallDetected
+        ? `Teams call detected${teamsMatchedWindowTitle ? `: ${teamsMatchedWindowTitle}` : ''}.`
+        : 'Watching for Teams calls.';
+
   return (
-    <section className="module">
-      <div className="module__head">
-        <h3>Audio Recorder</h3>
-        <span className={`status-dot ${status === 'recording' ? 'status-dot--live' : ''}`}>
-          {status}
-        </span>
-      </div>
-
-      <div className="capture-mode-row">
-        <button
-          className={`btn btn--ghost capture-mode-btn ${
-            captureMode === 'microphone' ? 'capture-mode-btn--active' : ''
-          }`}
-          type="button"
-          disabled={disabled || status === 'recording'}
-          onClick={() => setCaptureMode('microphone')}
-        >
-          Microphone only
-        </button>
-        <button
-          className={`btn btn--ghost capture-mode-btn ${
-            captureMode === 'microphone_system' ? 'capture-mode-btn--active' : ''
-          }`}
-          type="button"
-          disabled={disabled || status === 'recording' || !supportsSystemAudio}
-          onClick={() => setCaptureMode('microphone_system')}
-        >
-          Mic + system audio
-        </button>
-      </div>
-      {captureMode === 'microphone_system' && (
-        <p className="muted muted--hint">
-          {systemAudioBackend === 'electron'
-            ? 'System audio capture is active.'
-            : 'Share your screen/tab with audio enabled.'}
-        </p>
-      )}
-      {supportsSystemAudio && (
-        <p className="muted muted--hint capture-backend">
-          {systemAudioBackend === 'electron'
-            ? 'System audio: electron bridge'
-            : 'System audio: browser'}
-        </p>
-      )}
-      <label
-        className={`automation-toggle ${
-          autoTeamsRecordEnabled ? 'automation-toggle--active' : ''
-        } ${!teamsCallMonitorSupported ? 'automation-toggle--disabled' : ''}`}
+    <div className={`recorder ${isRecording ? 'recorder--live' : ''}`}>
+      <button
+        className="recorder__button"
+        type="button"
+        disabled={!isSupported || (!isRecording && disabled)}
+        onClick={() => (isRecording ? stopRecording() : void startRecording())}
+        aria-pressed={isRecording}
       >
-        <input
-          type="checkbox"
-          checked={autoTeamsRecordEnabled}
-          onChange={(event) => setAutoTeamsRecordEnabled(event.target.checked)}
-          disabled={disabled || !teamsCallMonitorSupported || !supportsSystemAudio}
-        />
-        <span>Auto-record Teams calls</span>
-      </label>
-      {teamsCallMonitorSupported ? (
-        <p className="muted muted--hint">
-          {autoTeamsRecordEnabled
-            ? teamsCallDetected
-              ? `Teams call detected${
-                  teamsMatchedWindowTitle ? `: ${teamsMatchedWindowTitle}` : ''
-                }. Auto-record is armed.`
-              : 'Watching for a Teams call window.'
-            : 'Enable this to auto-start on Teams calls.'}
+        {isRecording ? 'Stop' : 'Record'}
+      </button>
+
+      <div className="recorder__body">
+        <div className="recorder__time">
+          <span className="recorder__clock">{formatDuration(durationSeconds)}</span>
+          <span className="recorder__status">{statusLabel}</span>
+        </div>
+        <div className="recorder__bars" aria-hidden="true">
+          {Array.from({ length: 32 }, (_, index) => (
+            <i key={index} style={{ animationDelay: `${(index % 8) * 90}ms` }} />
+          ))}
+        </div>
+        <div className="recorder__toggles">
+          <label className="switch">
+            <input
+              type="checkbox"
+              checked={captureMode === 'microphone_system'}
+              disabled={isRecording || !supportsSystemAudio}
+              onChange={(event) =>
+                setCaptureMode(event.target.checked ? 'microphone_system' : 'microphone')
+              }
+            />
+            <span>System audio</span>
+          </label>
+          <label className="switch">
+            <input type="checkbox" checked disabled />
+            <span>Microphone</span>
+          </label>
+          <label className="switch">
+            <input
+              type="checkbox"
+              checked={autoTeamsRecordEnabled}
+              onChange={(event) => setAutoTeamsRecordEnabled(event.target.checked)}
+              disabled={!teamsCallMonitorSupported || !supportsSystemAudio}
+            />
+            <span>Auto-record Teams calls</span>
+          </label>
+        </div>
+        <p className="hint">
+          {teamsHint}
+          {captureMode === 'microphone_system' && systemAudioBackend !== 'electron'
+            ? ' Share your screen or tab with audio when asked.'
+            : ''}
         </p>
-      ) : (
-        <p className="muted muted--hint">
-          Teams auto-recording requires the Electron app and system audio.
-        </p>
-      )}
-      <p className="muted muted--hint">
-        Recording now:{' '}
-        <strong>
-          {status === 'recording'
-            ? `${activeRecordingTrigger === 'auto' ? 'yes (auto)' : 'yes (manual)'}`
-            : 'no'}
-        </strong>
-        {status === 'recording' ? `, saving as ${recordingBaseName}` : ''}
-      </p>
-      {!supportsSystemAudio && (
-        <p className="error-text">System audio capture is unavailable in this environment.</p>
-      )}
-
-      <div className="recorder-display">
-        <span className="recorder-display__label">REC</span>
-        <strong>{formatDuration(durationSeconds)}</strong>
+        {status === 'stopped' && audioBlob && (
+          <button className="btn btn--quiet" type="button" onClick={resetRecording}>
+            Clear recorder
+          </button>
+        )}
+        {!isSupported && <p className="error-text">Recording isn&apos;t supported here.</p>}
+        {!supportsSystemAudio && (
+          <p className="hint">System audio capture isn&apos;t available here, so only the mic is recorded.</p>
+        )}
+        {error && <p className="error-text">{error}</p>}
       </div>
-
-      <div className="button-row">
-        <button
-          className="btn btn--accent"
-          type="button"
-          disabled={disabled || !isSupported || status === 'recording'}
-          onClick={() => void startRecording()}
-        >
-          Start
-        </button>
-        <button
-          className="btn"
-          type="button"
-          disabled={disabled || status !== 'recording'}
-          onClick={stopRecording}
-        >
-          Stop
-        </button>
-        <button
-          className="btn btn--ghost"
-          type="button"
-          disabled={disabled || (status === 'idle' && !audioBlob)}
-          onClick={resetRecording}
-        >
-          Clear
-        </button>
-      </div>
-
-      {!isSupported && (
-        <p className="error-text">MediaRecorder is not supported in this browser.</p>
-      )}
-      {error && <p className="error-text">{error}</p>}
-    </section>
+    </div>
   );
 }

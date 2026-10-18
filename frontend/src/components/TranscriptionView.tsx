@@ -1,50 +1,75 @@
 import { useEffect, useMemo, useState } from 'react';
 import Markdown from 'react-markdown';
+import { splitSummarySections } from '../services/summary-sections';
 import type { Transcription } from '../types/api';
+import { formatDuration } from './TranscriptionHistory';
 
 interface TranscriptionViewProps {
   transcription: Transcription | null;
+  audioUrl?: string | null;
   isLoading?: boolean;
   isSaving?: boolean;
   isSummarizing?: boolean;
+  isRetrying?: boolean;
   onSave: (id: string, title: string, text: string) => Promise<void>;
   onGenerateSummary: (id: string, customPrompt?: string) => Promise<void>;
+  onRetry: (id: string) => Promise<void>;
 }
+
+type Tab = 'transcript' | 'summary';
+type CopyState = 'idle' | 'copied' | 'failed';
 
 function formatTimestamp(value: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) {
     return value;
   }
-  return date.toLocaleString();
+  return date.toLocaleString([], {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+async function copyText(text: string, setState: (state: CopyState) => void): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(text);
+    setState('copied');
+    window.setTimeout(() => setState('idle'), 1400);
+  } catch {
+    setState('failed');
+  }
 }
 
 export default function TranscriptionView({
   transcription,
+  audioUrl = null,
   isLoading = false,
   isSaving = false,
   isSummarizing = false,
+  isRetrying = false,
   onSave,
   onGenerateSummary,
+  onRetry,
 }: TranscriptionViewProps) {
-  const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle');
-  const [summaryCopyState, setSummaryCopyState] = useState<'idle' | 'copied' | 'failed'>('idle');
+  const [tab, setTab] = useState<Tab>('transcript');
+  const [copyState, setCopyState] = useState<CopyState>('idle');
+  const [summaryCopyState, setSummaryCopyState] = useState<CopyState>('idle');
   const [draftTitle, setDraftTitle] = useState('');
   const [draftText, setDraftText] = useState('');
 
-  const chunkCount = useMemo(() => {
-    return transcription?.chunks.length ?? 0;
-  }, [transcription]);
   const isDirty = useMemo(() => {
     if (!transcription) {
       return false;
     }
     return draftTitle.trim() !== transcription.title || draftText !== transcription.text;
   }, [draftText, draftTitle, transcription]);
-  const summaryText = useMemo(() => {
-    return transcription?.summary_text?.trim() ?? '';
-  }, [transcription]);
-  const hasSummary = summaryText.length > 0;
+  const summaryText = transcription?.summary_text?.trim() ?? '';
+  const sections = useMemo(() => splitSummarySections(summaryText), [summaryText]);
+  const hasSummary = sections.length > 0;
+  const failed = transcription?.status === 'failed';
 
   useEffect(() => {
     if (!transcription) {
@@ -56,183 +81,162 @@ export default function TranscriptionView({
     setDraftText(transcription.text);
   }, [transcription?.id, transcription?.title, transcription?.text]);
 
-  const handleCopy = async () => {
-    if (!transcription) {
-      return;
-    }
+  useEffect(() => {
+    setCopyState('idle');
+    setSummaryCopyState('idle');
+  }, [transcription?.id]);
 
-    try {
-      await navigator.clipboard.writeText(draftText);
-      setCopyState('copied');
-      window.setTimeout(() => setCopyState('idle'), 1400);
-    } catch {
-      setCopyState('failed');
-    }
-  };
+  if (!transcription) {
+    return (
+      <section className="card doc doc--empty">
+        <p className="doc__placeholder">
+          {isLoading
+            ? 'Opening recording…'
+            : 'Pick a recording on the left, or record a call to see its transcript here.'}
+        </p>
+      </section>
+    );
+  }
 
-  const handleCopySummary = async () => {
-    if (!hasSummary) {
-      return;
-    }
-
-    try {
-      await navigator.clipboard.writeText(summaryText);
-      setSummaryCopyState('copied');
-      window.setTimeout(() => setSummaryCopyState('idle'), 1400);
-    } catch {
-      setSummaryCopyState('failed');
-    }
-  };
-
-  const handleSave = async () => {
-    if (!transcription) {
-      return;
-    }
-    await onSave(transcription.id, draftTitle.trim(), draftText.trim());
-  };
-
-  const handleGenerateSummary = async () => {
-    if (!transcription) {
-      return;
-    }
-    await onGenerateSummary(transcription.id);
-  };
+  const meta = [
+    transcription.source === 'recording' ? 'Recording' : 'Upload',
+    formatTimestamp(transcription.created_at),
+    formatDuration(transcription.duration_seconds),
+  ].filter(Boolean);
 
   return (
-    <section className="module module--transcription">
-      <div className="module__head">
-        <h3>Transcription View</h3>
-        <button
-          className="btn btn--ghost"
-          type="button"
-          onClick={handleCopy}
-          disabled={!transcription}
-        >
-          {copyState === 'copied' ? 'Copied' : 'Copy Text'}
-        </button>
+    <section className={`card doc ${isLoading ? 'doc--busy' : ''}`} aria-busy={isLoading}>
+      <div className="doc__head">
+        <div className="doc__heading">
+          <input
+            className="doc__title"
+            aria-label="Title"
+            value={draftTitle}
+            onChange={(event) => setDraftTitle(event.target.value)}
+            disabled={isSaving || failed}
+          />
+          <div className="doc__meta">{meta.join(' · ')}</div>
+        </div>
+        {!failed && (
+          <div className="seg" role="tablist" aria-label="Transcript or summary">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={tab === 'transcript'}
+              onClick={() => setTab('transcript')}
+            >
+              Transcript
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={tab === 'summary'}
+              onClick={() => setTab('summary')}
+            >
+              Summary
+            </button>
+          </div>
+        )}
       </div>
 
-      {isLoading && <p className="placeholder-text">Transcribing audio...</p>}
+      {audioUrl && <audio className="doc__audio" src={audioUrl} controls preload="none" />}
 
-      {!isLoading && !transcription && (
-        <p className="placeholder-text">Upload or record audio to generate a transcript.</p>
-      )}
-
-      {transcription && (
+      {failed ? (
+        <div className="doc__failed">
+          <p>
+            This recording was saved, but it wasn&apos;t transcribed. Check that a transcription
+            service is online, then try again.
+          </p>
+          <button
+            className="btn btn--primary"
+            type="button"
+            disabled={isRetrying}
+            onClick={() => void onRetry(transcription.id)}
+          >
+            {isRetrying ? 'Transcribing…' : 'Transcribe again'}
+          </button>
+        </div>
+      ) : tab === 'transcript' ? (
         <>
-          <label className="field-block">
-            <span className="field-block__label">Title</span>
-            <input
-              className="field-input"
-              type="text"
-              value={draftTitle}
-              onChange={(event) => setDraftTitle(event.target.value)}
-              disabled={isSaving}
-            />
-          </label>
-
-          <div className="transcription-meta">
-            <span>{transcription.filename}</span>
-            <span>{formatTimestamp(transcription.created_at)}</span>
-            <span>{transcription.language.toUpperCase()}</span>
-            <span>{chunkCount} chunks</span>
-          </div>
-
-          <label className="field-block">
-            <span className="field-block__label">Transcript</span>
-            <textarea
-              className="transcription-body transcription-body--editable"
-              value={draftText}
-              onChange={(event) => setDraftText(event.target.value)}
-              disabled={isSaving}
-            />
-          </label>
-
-          <div className="transcription-actions">
+          <textarea
+            className="doc__body"
+            aria-label="Transcript"
+            value={draftText}
+            onChange={(event) => setDraftText(event.target.value)}
+            disabled={isSaving}
+          />
+          <div className="doc__actions">
             <button
               className="btn btn--primary"
               type="button"
-              onClick={() => void handleSave()}
+              onClick={() =>
+                void onSave(transcription.id, draftTitle.trim(), draftText.trim())
+              }
               disabled={
-                !isDirty ||
-                isSaving ||
-                draftTitle.trim().length === 0 ||
-                draftText.trim().length === 0
+                !isDirty || isSaving || !draftTitle.trim() || !draftText.trim()
               }
             >
-              {isSaving ? 'Saving...' : 'Save edits'}
+              {isSaving ? 'Saving…' : 'Save edits'}
             </button>
+            <button className="btn" type="button" onClick={() => void copyText(draftText, setCopyState)}>
+              {copyState === 'copied' ? 'Copied' : 'Copy text'}
+            </button>
+            {copyState === 'failed' && (
+              <span className="error-text">Couldn&apos;t copy to the clipboard.</span>
+            )}
           </div>
-
-          <section className="summary-section" aria-live="polite">
-            <div className="module__head summary-section__head">
-              <h3>Meeting Summary</h3>
-              {hasSummary && (
-                <span className="summary-indicator summary-indicator--inline">Summary ready</span>
-              )}
-            </div>
-
-            {isSummarizing && (
-              <div className="summary-loading">
-                <span className="spinner" />
-                <span>Generating summary...</span>
-              </div>
-            )}
-
-            {hasSummary ? (
-              <div className="summary-body">
-                <Markdown>{summaryText}</Markdown>
-              </div>
-            ) : (
-              !isSummarizing && (
-                <p className="placeholder-text placeholder-text--summary">
-                  Generate a structured meeting summary from this transcript.
-                </p>
-              )
-            )}
-
-            <div className="summary-actions">
-              {hasSummary ? (
-                <>
-                  <button
-                    className="btn btn--primary"
-                    type="button"
-                    onClick={() => void handleGenerateSummary()}
-                    disabled={isSummarizing}
-                  >
-                    {isSummarizing ? 'Regenerating...' : 'Regenerate Summary'}
-                  </button>
-                  <button
-                    className="btn btn--ghost"
-                    type="button"
-                    onClick={() => void handleCopySummary()}
-                    disabled={!hasSummary || isSummarizing}
-                  >
-                    {summaryCopyState === 'copied' ? 'Summary copied' : 'Copy Summary'}
-                  </button>
-                </>
-              ) : (
-                <button
-                  className="btn btn--primary"
-                  type="button"
-                  onClick={() => void handleGenerateSummary()}
-                  disabled={isSummarizing}
-                >
-                  {isSummarizing ? 'Generating...' : 'Generate Summary'}
-                </button>
-              )}
-            </div>
-          </section>
-
-          {copyState === 'failed' && (
-            <p className="error-text">Could not copy to clipboard in this browser context.</p>
-          )}
-          {summaryCopyState === 'failed' && (
-            <p className="error-text">
-              Could not copy summary to clipboard in this browser context.
+        </>
+      ) : (
+        <div aria-live="polite">
+          {isSummarizing && (
+            <p className="doc__placeholder">
+              <span className="spinner" /> Writing the summary…
             </p>
           )}
-        </>
+          {!isSummarizing && !hasSummary && (
+            <p className="doc__placeholder">
+              Get the key points, decisions and action items from this call.
+            </p>
+          )}
+          {hasSummary && (
+            <div className="sumgrid">
+              {sections.map((section, index) => (
+                <article
+                  key={`${section.title}-${index}`}
+                  className={`sumcard sumcard--${section.kind} ${
+                    index === 0 && section.kind === 'brief' ? 'sumcard--wide' : ''
+                  }`}
+                >
+                  <h3>{section.title}</h3>
+                  <Markdown>{section.body}</Markdown>
+                </article>
+              ))}
+            </div>
+          )}
+          <div className="doc__actions">
+            <button
+              className="btn btn--primary"
+              type="button"
+              onClick={() => void onGenerateSummary(transcription.id)}
+              disabled={isSummarizing || !transcription.text.trim()}
+            >
+              {isSummarizing ? 'Summarizing…' : hasSummary ? 'Regenerate summary' : 'Summarize'}
+            </button>
+            {hasSummary && (
+              <button
+                className="btn"
+                type="button"
+                onClick={() => void copyText(summaryText, setSummaryCopyState)}
+                disabled={isSummarizing}
+              >
+                {summaryCopyState === 'copied' ? 'Copied' : 'Copy summary'}
+              </button>
+            )}
+            {summaryCopyState === 'failed' && (
+              <span className="error-text">Couldn&apos;t copy to the clipboard.</span>
+            )}
+          </div>
+        </div>
       )}
     </section>
   );
