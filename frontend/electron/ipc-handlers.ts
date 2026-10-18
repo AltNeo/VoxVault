@@ -22,7 +22,8 @@ export type AutoRecordPromptRequestResult = {
   status: 'shown' | 'ignored' | 'already-open';
 };
 
-export type AutoRecordPromptAction = 'confirm' | 'dismiss';
+// 'dismiss' skips this call only; 'ignore' also stops prompting for this meeting title.
+export type AutoRecordPromptAction = 'confirm' | 'dismiss' | 'ignore';
 export type RecorderCommand = 'start' | 'stop';
 
 export type AudioSource = {

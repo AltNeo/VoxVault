@@ -1,4 +1,4 @@
-import { app, BrowserWindow } from 'electron';
+import { app, BrowserWindow, screen } from 'electron';
 import { appendFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -194,17 +194,32 @@ function hideMainWindow(): void {
   mainWindow.setSkipTaskbar(true);
 }
 
+const PROMPT_WINDOW_WIDTH = 400;
+const PROMPT_WINDOW_HEIGHT = 176;
+const PROMPT_WINDOW_MARGIN = 16;
+
 function createAutoRecordPromptWindow(): BrowserWindow {
   logPopupDiagnostic('window-create', {
     kind: autoRecordPromptState.kind,
     titleLength: autoRecordPromptState.title?.length ?? 0,
   });
+  // A small toast pinned to the bottom-right corner of the screen the user is working
+  // on. It is its own window, so it shows even while the main window is hidden in the tray.
+  const { workArea } = screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
+  const width = PROMPT_WINDOW_WIDTH;
+  const height = PROMPT_WINDOW_HEIGHT;
   const win = new BrowserWindow({
-    width: 500,
-    height: 320,
+    width,
+    height,
+    x: workArea.x + workArea.width - width - PROMPT_WINDOW_MARGIN,
+    y: workArea.y + workArea.height - height - PROMPT_WINDOW_MARGIN,
     show: false,
+    frame: false,
+    transparent: true,
+    hasShadow: false,
     skipTaskbar: true,
     resizable: false,
+    movable: false,
     minimizable: false,
     maximizable: false,
     fullscreenable: false,
@@ -349,7 +364,7 @@ async function respondToAutoRecordPrompt(action: AutoRecordPromptAction): Promis
     return;
   }
 
-  if (autoRecordPromptState.kind === 'start' && action === 'dismiss') {
+  if (autoRecordPromptState.kind === 'start' && action === 'ignore') {
     teamsIgnoreList.addToIgnoreList(title);
   }
 

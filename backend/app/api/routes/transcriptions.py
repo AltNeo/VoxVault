@@ -120,31 +120,130 @@ async def upload_audio(
 
     stored_filename = stored_audio.filename
     stored_audio_path = stored_audio.path
-    transcription_input = stored_audio.path
+    if source == "recording":
+        try:
+            recording_mp3_path = services.audio_processor.convert_to_mp3(stored_audio.path)
+        except Exception:
+            # Keep the original recording; it is still playable and can be retried.
+            recording_mp3_path = stored_audio.path
+        if recording_mp3_path != stored_audio.path:
+            stored_audio.path.unlink(missing_ok=True)
+            stored_filename = f"{Path(stored_audio.filename).stem}.mp3"
+        stored_audio_path = recording_mp3_path
+
+    record = {
+        "id": stored_audio.transcription_id,
+        "title": _default_title_from_filename(stored_filename),
+        "filename": stored_filename,
+        "source": source,
+        "language": normalized_language,
+        "duration_seconds": None,
+        "status": "failed",
+        "text": "",
+        "chunks": [],
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "audio_path": str(stored_audio_path.resolve()),
+    }
+
+    try:
+        transcription_result, duration_seconds = await _transcribe_stored_audio(
+            services=services,
+            audio_path=stored_audio_path,
+            language=normalized_language,
+            custom_prompt=effective_custom_prompt,
+        )
+    except Exception:
+        # Save a failed entry so the recording still shows up in history and can be retried.
+        services.storage.create_transcription(record)
+        raise
+
+    record.update(
+        status="completed",
+        text=transcription_result.text,
+        chunks=transcription_result.chunks,
+        duration_seconds=duration_seconds,
+    )
+    services.storage.create_transcription(record)
+
+    stored_record = services.storage.get_transcription(stored_audio.transcription_id)
+    if stored_record is None:
+        raise APIError(
+            code="STORAGE_ERROR",
+            message="Transcription was stored but could not be retrieved.",
+            status_code=500,
+        )
+    return _to_transcription_payload(stored_record, services.settings.api_prefix)
+
+
+@router.post("/transcriptions/{transcription_id}/retry", response_model=Transcription)
+async def retry_transcription(
+    transcription_id: str,
+    services: AppServices = SERVICES_DEP,
+) -> dict[str, Any]:
+    row = services.storage.get_transcription(transcription_id)
+    if row is None:
+        raise APIError(
+            code="NOT_FOUND",
+            message="Transcription not found.",
+            status_code=404,
+        )
+
+    audio_path = Path(str(row.get("audio_path", "")))
+    if not audio_path.is_file():
+        raise APIError(
+            code="AUDIO_NOT_FOUND",
+            message="The audio for this recording is no longer on disk.",
+            status_code=404,
+        )
+
+    transcription_result, duration_seconds = await _transcribe_stored_audio(
+        services=services,
+        audio_path=audio_path,
+        language=row.get("language") or "en",
+        custom_prompt=_normalize_custom_prompt(
+            services.storage.get_setting(CUSTOM_PROMPT_SETTING_KEY)
+        ),
+    )
+    services.storage.update_transcription_result(
+        transcription_id,
+        status="completed",
+        text=transcription_result.text,
+        chunks=transcription_result.chunks,
+        duration_seconds=duration_seconds,
+    )
+
+    updated = services.storage.get_transcription(transcription_id)
+    if updated is None:
+        raise APIError(
+            code="STORAGE_ERROR",
+            message="Transcription was stored but could not be retrieved.",
+            status_code=500,
+        )
+    return _to_transcription_payload(updated, services.settings.api_prefix)
+
+
+async def _transcribe_stored_audio(
+    *,
+    services: AppServices,
+    audio_path: Path,
+    language: str,
+    custom_prompt: str | None,
+) -> tuple[TranscriptionResult, float | None]:
+    transcription_input = audio_path
     temporary_files: list[Path] = []
     temporary_dirs: list[Path] = []
 
     try:
-        if source == "recording":
-            recording_mp3_path = services.audio_processor.convert_to_mp3(stored_audio.path)
-            if recording_mp3_path != stored_audio.path:
-                stored_audio.path.unlink(missing_ok=True)
-            stored_audio_path = recording_mp3_path
-            transcription_input = recording_mp3_path
-            stored_filename = f"{Path(stored_audio.filename).stem}.mp3"
-        else:
-            transcription_input = services.audio_processor.convert_for_transcription(
-                stored_audio.path
-            )
-            if transcription_input != stored_audio.path:
-                temporary_files.append(transcription_input)
+        transcription_input = services.audio_processor.convert_for_transcription(audio_path)
+        if transcription_input != audio_path:
+            temporary_files.append(transcription_input)
 
-        duration_seconds = services.audio_processor.get_duration_seconds(stored_audio_path)
+        duration_seconds = services.audio_processor.get_duration_seconds(audio_path)
         transcription_result, chunk_temp_dir = await _transcribe_with_chunking(
             services=services,
             audio_path=transcription_input,
-            language=normalized_language,
-            custom_prompt=effective_custom_prompt,
+            language=language,
+            custom_prompt=custom_prompt,
         )
         if chunk_temp_dir is not None:
             temporary_dirs.append(chunk_temp_dir)
@@ -170,29 +269,7 @@ async def upload_audio(
             if temp_dir.exists():
                 shutil.rmtree(temp_dir, ignore_errors=True)
 
-    record = {
-        "id": stored_audio.transcription_id,
-        "title": _default_title_from_filename(stored_filename),
-        "filename": stored_filename,
-        "source": source,
-        "language": normalized_language,
-        "duration_seconds": duration_seconds,
-        "status": "completed",
-        "text": transcription_result.text,
-        "chunks": transcription_result.chunks,
-        "created_at": datetime.now(timezone.utc).isoformat(),
-        "audio_path": str(stored_audio_path.resolve()),
-    }
-    services.storage.create_transcription(record)
-
-    stored_record = services.storage.get_transcription(stored_audio.transcription_id)
-    if stored_record is None:
-        raise APIError(
-            code="STORAGE_ERROR",
-            message="Transcription was stored but could not be retrieved.",
-            status_code=500,
-        )
-    return _to_transcription_payload(stored_record, services.settings.api_prefix)
+    return transcription_result, duration_seconds
 
 
 @router.get("/transcription-prompt", response_model=TranscriptionPromptResponse)

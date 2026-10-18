@@ -429,7 +429,7 @@ export function useAudioRecorder(): UseAudioRecorderResult {
     }
 
     return window.electronAPI.onAutoRecordPromptAction(({ action, title }) => {
-      if (action === 'dismiss') {
+      if (action === 'dismiss' || action === 'ignore') {
         if (status === 'recording') {
           return;
         }

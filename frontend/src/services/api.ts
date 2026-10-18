@@ -39,6 +39,7 @@ export interface ApiClient {
   getSummaryPrompt(): Promise<SummaryPromptResponse>;
   updateSummaryPrompt(customPrompt: string): Promise<SummaryPromptResponse>;
   summarizeTranscription(id: string, customPrompt?: string): Promise<SummaryResponse>;
+  retryTranscription(id: string): Promise<Transcription>;
   updateTranscription(input: UpdateTranscriptionInput): Promise<Transcription>;
   listTranscriptions(input?: ListTranscriptionsInput): Promise<TranscriptionListResponse>;
   getTranscription(id: string): Promise<Transcription>;
@@ -271,6 +272,26 @@ function createMockClient(storage: StorageLike): ApiClient {
       };
     },
 
+    async retryTranscription(id) {
+      await delay(DEFAULT_DELAY_MS);
+      const index = items.findIndex((item) => item.id === id);
+      if (index < 0) {
+        throw new ApiError('Transcription not found', 404, {
+          error: { code: 'not_found', message: 'Transcription not found' },
+          request_id: 'mock',
+        });
+      }
+
+      const updated: Transcription = {
+        ...items[index],
+        status: 'completed',
+        text: items[index].text || `Mock transcription for ${items[index].filename}`,
+      };
+      items[index] = updated;
+      saveStore(storage, items);
+      return updated;
+    },
+
     async summarizeTranscription(id, customPrompt) {
       await delay(DEFAULT_DELAY_MS);
       const index = items.findIndex((item) => item.id === id);
@@ -452,6 +473,14 @@ function createHttpClient(baseUrl: string, fetchImpl: FetchImpl): ApiClient {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ custom_prompt: customPrompt.trim() }),
       });
+    },
+
+    async retryTranscription(id) {
+      return requestJson<Transcription>(
+        fetchImpl,
+        `${baseUrl}/api/transcriptions/${encodeURIComponent(id)}/retry`,
+        { method: 'POST' }
+      );
     },
 
     async summarizeTranscription(id, customPrompt) {

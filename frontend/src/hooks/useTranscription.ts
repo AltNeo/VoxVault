@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import api from '../services/api';
 import type {
   ListTranscriptionsInput,
@@ -11,7 +11,9 @@ interface UseTranscriptionResult {
   history: TranscriptionSummary[];
   activeTranscription: Transcription | null;
   transcriptionPrompt: string;
-  isLoading: boolean;
+  isUploading: boolean;
+  isLoadingDetail: boolean;
+  isRetrying: boolean;
   isHistoryLoading: boolean;
   isPromptLoading: boolean;
   isPromptSaving: boolean;
@@ -29,22 +31,44 @@ interface UseTranscriptionResult {
   saveTranscriptionEdits: (id: string, title: string, text: string) => Promise<Transcription>;
   loadHistory: (input?: ListTranscriptionsInput) => Promise<void>;
   selectTranscription: (id: string) => Promise<void>;
+  retryTranscription: (id: string) => Promise<void>;
   clearActive: () => void;
 }
 
-function mergeHistory(
+const HISTORY_PAGE_SIZE = 100;
+
+function toSummary(item: TranscriptionSummary | Transcription): TranscriptionSummary {
+  if (!('chunks' in item)) {
+    return item;
+  }
+  const { chunks: _chunks, ...summary } = item;
+  return summary;
+}
+
+// Replace an entry in place so the sidebar keeps its order; new entries go on top.
+export function upsertHistory(
   items: TranscriptionSummary[],
-  item: TranscriptionSummary
+  item: TranscriptionSummary | Transcription
 ): TranscriptionSummary[] {
-  const without = items.filter((current) => current.id !== item.id);
-  return [item, ...without];
+  const summary = toSummary(item);
+  const index = items.findIndex((current) => current.id === summary.id);
+  if (index < 0) {
+    return [summary, ...items];
+  }
+  const next = items.slice();
+  next[index] = summary;
+  return next;
 }
 
 export function useTranscription(): UseTranscriptionResult {
   const [history, setHistory] = useState<TranscriptionSummary[]>([]);
   const [activeTranscription, setActiveTranscription] = useState<Transcription | null>(null);
   const [transcriptionPrompt, setTranscriptionPrompt] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+  const [isLoadingDetail, setIsLoadingDetail] = useState(false);
+  const [isRetrying, setIsRetrying] = useState(false);
+  // Bumped whenever the user picks a recording, so slower responses can't overwrite it.
+  const selectionVersionRef = useRef(0);
   const [isHistoryLoading, setIsHistoryLoading] = useState(false);
   const [isPromptLoading, setIsPromptLoading] = useState(false);
   const [isPromptSaving, setIsPromptSaving] = useState(false);
@@ -57,7 +81,7 @@ export function useTranscription(): UseTranscriptionResult {
     setError(null);
 
     try {
-      const result = await api.listTranscriptions(input);
+      const result = await api.listTranscriptions({ limit: HISTORY_PAGE_SIZE, ...input });
       setHistory(result.items);
     } catch (loadError) {
       const message =
@@ -70,7 +94,8 @@ export function useTranscription(): UseTranscriptionResult {
 
   const uploadAudio = useCallback(
     async (file: File, source: TranscriptionSource, customPrompt?: string) => {
-      setIsLoading(true);
+      const selectionAtStart = selectionVersionRef.current;
+      setIsUploading(true);
       setError(null);
 
       try {
@@ -81,16 +106,24 @@ export function useTranscription(): UseTranscriptionResult {
           customPrompt,
         });
 
-        setActiveTranscription(transcription);
-        setHistory((current) => mergeHistory(current, transcription));
+        setHistory((current) => upsertHistory(current, transcription));
+        // Only jump to the new transcript if the user hasn't opened another one meanwhile.
+        if (selectionVersionRef.current === selectionAtStart) {
+          setActiveTranscription(transcription);
+        }
         return transcription;
       } catch (uploadError) {
         const message =
           uploadError instanceof Error ? uploadError.message : 'Failed to transcribe audio.';
         setError(message);
+        // A failed transcription is still saved with its audio, so refresh to show it.
+        void api
+          .listTranscriptions({ limit: HISTORY_PAGE_SIZE })
+          .then((result) => setHistory(result.items))
+          .catch(() => undefined);
         throw uploadError;
       } finally {
-        setIsLoading(false);
+        setIsUploading(false);
       }
     },
     []
@@ -136,9 +169,8 @@ export function useTranscription(): UseTranscriptionResult {
     try {
       await api.summarizeTranscription(id, customPrompt);
       const refreshed = await api.getTranscription(id);
-      const { chunks: _chunks, ...summary } = refreshed;
-      setActiveTranscription(refreshed);
-      setHistory((current) => mergeHistory(current, summary));
+      setActiveTranscription((current) => (current?.id === id ? refreshed : current));
+      setHistory((current) => upsertHistory(current, refreshed));
     } catch (summaryError) {
       const message =
         summaryError instanceof Error ? summaryError.message : 'Failed to generate summary.';
@@ -150,19 +182,45 @@ export function useTranscription(): UseTranscriptionResult {
   }, []);
 
   const selectTranscription = useCallback(async (id: string) => {
-    setIsLoading(true);
+    const version = ++selectionVersionRef.current;
+    setIsLoadingDetail(true);
     setError(null);
 
     try {
       const transcription = await api.getTranscription(id);
+      if (version !== selectionVersionRef.current) {
+        return;
+      }
       setActiveTranscription(transcription);
-      setHistory((current) => mergeHistory(current, transcription));
+      setHistory((current) => upsertHistory(current, transcription));
     } catch (loadError) {
+      if (version !== selectionVersionRef.current) {
+        return;
+      }
       const message =
         loadError instanceof Error ? loadError.message : 'Failed to load transcription details.';
       setError(message);
     } finally {
-      setIsLoading(false);
+      if (version === selectionVersionRef.current) {
+        setIsLoadingDetail(false);
+      }
+    }
+  }, []);
+
+  const retryTranscription = useCallback(async (id: string) => {
+    setIsRetrying(true);
+    setError(null);
+
+    try {
+      const transcription = await api.retryTranscription(id);
+      setHistory((current) => upsertHistory(current, transcription));
+      setActiveTranscription((current) => (current?.id === id ? transcription : current));
+    } catch (retryError) {
+      const message =
+        retryError instanceof Error ? retryError.message : 'Failed to transcribe this recording.';
+      setError(message);
+    } finally {
+      setIsRetrying(false);
     }
   }, []);
 
@@ -172,8 +230,8 @@ export function useTranscription(): UseTranscriptionResult {
 
     try {
       const transcription = await api.updateTranscription({ id, title, text });
-      setActiveTranscription(transcription);
-      setHistory((current) => mergeHistory(current, transcription));
+      setActiveTranscription((current) => (current?.id === id ? transcription : current));
+      setHistory((current) => upsertHistory(current, transcription));
       return transcription;
     } catch (saveError) {
       const message =
@@ -186,6 +244,7 @@ export function useTranscription(): UseTranscriptionResult {
   }, []);
 
   const clearActive = useCallback(() => {
+    selectionVersionRef.current += 1;
     setActiveTranscription(null);
     setError(null);
   }, []);
@@ -194,7 +253,9 @@ export function useTranscription(): UseTranscriptionResult {
     history,
     activeTranscription,
     transcriptionPrompt,
-    isLoading,
+    isUploading,
+    isLoadingDetail,
+    isRetrying,
     isHistoryLoading,
     isPromptLoading,
     isPromptSaving,
@@ -208,6 +269,7 @@ export function useTranscription(): UseTranscriptionResult {
     saveTranscriptionEdits,
     loadHistory,
     selectTranscription,
+    retryTranscription,
     clearActive,
   };
 }
