@@ -163,7 +163,9 @@ def test_jev_receives_only_current_calendar_signal(monkeypatch, tmp_path) -> Non
 
     class FakeClient:
         def __init__(self, **kwargs) -> None:
-            pass
+            context = kwargs["verify"]
+            assert context.verify_mode == teams_call_detector.ssl.CERT_REQUIRED
+            assert context.check_hostname
 
         async def __aenter__(self):
             return self

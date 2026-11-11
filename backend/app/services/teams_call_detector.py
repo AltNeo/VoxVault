@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import platform
+import ssl
 import time
 from dataclasses import asdict, dataclass
 from datetime import datetime
@@ -296,7 +297,9 @@ class TeamsCallTransitionService:
         }
         headers = {"Authorization": f"Bearer {self._api_key}"}
         timeout = httpx.Timeout(self._timeout_seconds)
-        async with httpx.AsyncClient(timeout=timeout) as client:
+        async with httpx.AsyncClient(
+            timeout=timeout, verify=ssl.create_default_context()
+        ) as client:
             response = await client.post(
                 "https://api.typesafe.ai/v1/systemone",
                 headers=headers,
