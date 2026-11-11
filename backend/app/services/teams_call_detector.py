@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import platform
+import sqlite3
 import ssl
 import time
+from contextlib import closing
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from typing import Any, Literal
@@ -18,8 +19,9 @@ from app.services.calendar_signal import CalendarSignalService
 Transition = Literal["START", "CONTINUE", "SWITCH", "END", "UNCERTAIN"]
 TEAMS_PROCESS_NAMES = {"ms-teams.exe", "teams.exe"}
 CALL_TOOLBAR_PREFIX = "callingButtons-"
-LONG_CALL_REVIEW_AFTER_SECONDS = 40 * 60
-LONG_CALL_REVIEW_INTERVAL_SECONDS = 20 * 60
+JEV_AMBIGUITY_SECONDS = 30
+JEV_DAILY_LIMIT = 5
+UNKNOWN_CALL_SECONDS = 10 * 60
 
 
 @dataclass(frozen=True, slots=True)
@@ -33,11 +35,7 @@ class TeamsWindow:
     leave_control: bool
     call_toolbar_control: bool
     controls: tuple[str, ...]
-
-
-def snapshot_signature(snapshot: dict[str, Any]) -> str:
-    stable = {key: value for key, value in snapshot.items() if key != "observed_at"}
-    return json.dumps(stable, sort_keys=True, separators=(",", ":"))
+    controls_readable: bool = True
 
 
 def capture_teams_snapshot() -> dict[str, Any]:
@@ -129,12 +127,17 @@ def _teams_windows(process_ids: set[int]) -> list[TeamsWindow]:
     desktop = Desktop(backend="uia")
     results: list[TeamsWindow] = []
     for hwnd in handles:
+        _, process_id = win32process.GetWindowThreadProcessId(hwnd)
+        title = str(win32gui.GetWindowText(hwnd) or "").strip()
+        class_name = str(win32gui.GetClassName(hwnd) or "")
+        visible = bool(win32gui.IsWindowVisible(hwnd))
+        minimized = bool(win32gui.IsIconic(hwnd))
+        controls: list[str] = []
+        leave_control = False
+        call_toolbar_control = False
+        controls_readable = True
         try:
-            _, process_id = win32process.GetWindowThreadProcessId(hwnd)
             wrapper = desktop.window(handle=hwnd)
-            controls: list[str] = []
-            leave_control = False
-            call_toolbar_control = False
             for item in wrapper.descendants():
                 info = item.element_info
                 if info.control_type != "Button" or not item.is_visible():
@@ -152,23 +155,42 @@ def _teams_windows(process_ids: set[int]) -> list[TeamsWindow]:
                 call_toolbar_control = call_toolbar_control or is_toolbar
                 controls.append(f"{name}|{automation_id}|enabled={item.is_enabled()}")
 
-            results.append(
-                TeamsWindow(
-                    window_id=str(hwnd),
-                    process_id=process_id,
-                    title=str(win32gui.GetWindowText(hwnd) or "").strip(),
-                    class_name=str(win32gui.GetClassName(hwnd) or ""),
-                    visible=bool(win32gui.IsWindowVisible(hwnd)),
-                    minimized=bool(win32gui.IsIconic(hwnd)),
-                    leave_control=leave_control,
-                    call_toolbar_control=call_toolbar_control,
-                    controls=tuple(sorted(set(controls))),
-                )
-            )
         except Exception:
-            continue
+            if not win32gui.IsWindow(hwnd):
+                continue
+            controls_readable = False
+
+        results.append(
+            TeamsWindow(
+                window_id=str(hwnd),
+                process_id=process_id,
+                title=title,
+                class_name=class_name,
+                visible=visible,
+                minimized=minimized,
+                leave_control=controls_readable and leave_control,
+                call_toolbar_control=controls_readable and call_toolbar_control,
+                controls=tuple(sorted(set(controls))),
+                controls_readable=controls_readable,
+            )
+        )
 
     return sorted(results, key=lambda window: (window.title.lower(), window.window_id))
+
+
+def _window_closed(identity: tuple[int, str]) -> bool:
+    import win32gui
+    import win32process
+
+    process_id, window_id = identity
+    hwnd = int(window_id)
+    try:
+        return (
+            not win32gui.IsWindow(hwnd)
+            or win32process.GetWindowThreadProcessId(hwnd)[1] != process_id
+        )
+    except Exception:
+        return False
 
 
 class TeamsCallTransitionService:
@@ -183,102 +205,247 @@ class TeamsCallTransitionService:
         self._confidence_threshold = settings.typesafe_transition_confidence
         self._calendar_signal_service = calendar_signal_service
         self._previous_snapshot: dict[str, Any] | None = None
-        self._previous_signature: str | None = None
         self._previous_decision: Transition = "UNCERTAIN"
-        self._active_since: float | None = None
-        self._last_jev_evaluation_at: float | None = None
+        self._active: dict[str, Any] | None = None
+        self._candidate: tuple[int, str] | None = None
+        self._missing_polls = 0
+        self._unknown_since: float | None = None
+        self._ambiguity: tuple[tuple[int, str], ...] = ()
+        self._ambiguity_since = 0.0
+        self._attempted: set[tuple[tuple[int, str], ...]] = set()
+        self._jev_blocked_day: str | None = None
+        self._budget_path = settings.sqlite_path
         self._clock = time.monotonic
         self._lock = asyncio.Lock()
+
+    @staticmethod
+    def _identity(window: dict[str, Any]) -> tuple[int, str]:
+        return window["process_id"], window["window_id"]
+
+    def _reserve_jev_request(self, day: str) -> bool:
+        with closing(sqlite3.connect(self._budget_path)) as db, db:
+            db.execute(
+                "CREATE TABLE IF NOT EXISTS teams_jev_budget "
+                "(day TEXT PRIMARY KEY, requests INTEGER NOT NULL, blocked INTEGER NOT NULL)"
+            )
+            cursor = db.execute(
+                "INSERT INTO teams_jev_budget VALUES (?, 1, 0) "
+                "ON CONFLICT(day) DO UPDATE SET requests = requests + 1 "
+                "WHERE requests < ? AND blocked = 0",
+                (day, JEV_DAILY_LIMIT),
+            )
+            return cursor.rowcount == 1
+
+    def _block_jev(self, day: str) -> None:
+        with closing(sqlite3.connect(self._budget_path)) as db, db:
+            db.execute("UPDATE teams_jev_budget SET blocked = 1 WHERE day = ?", (day,))
 
     async def evaluate(self) -> dict[str, Any]:
         async with self._lock:
             current = await asyncio.to_thread(capture_teams_snapshot)
-            current_signature = snapshot_signature(current)
             now = self._clock()
-            periodic_review_due = self._is_periodic_review_due(now)
+            healthy = current["probe_health"] == "good"
+            windows = {self._identity(window): window for window in current["windows"]}
+            calls = (
+                {
+                    key: window
+                    for key, window in windows.items()
+                    if window["leave_control"] and window["call_toolbar_control"]
+                }
+                if healthy
+                else {}
+            )
+            active_key = self._identity(self._active) if self._active else None
+            tracked = windows.get(active_key)
+            decision: Transition = "UNCERTAIN"
+            ended = False
+            if self._active:
+                if active_key in calls:
+                    self._missing_polls = 0
+                    self._unknown_since = None
+                    decision = "CONTINUE"
+                elif healthy and (
+                    not current["teams_running"]
+                    or (tracked is None and await asyncio.to_thread(_window_closed, active_key))
+                ):
+                    ended = True
+                elif (
+                    healthy
+                    and tracked
+                    and tracked["controls_readable"]
+                    and tracked["visible"]
+                    and not tracked["minimized"]
+                    and not tracked["leave_control"]
+                    and not tracked["call_toolbar_control"]
+                ):
+                    self._unknown_since = None
+                    self._missing_polls += 1
+                    ended = self._missing_polls >= 3
+                else:
+                    self._missing_polls = 0
+                    if self._unknown_since is None:
+                        self._unknown_since = now
+                    ended = now - self._unknown_since >= UNKNOWN_CALL_SECONDS
 
-            if self._previous_signature == current_signature and not periodic_review_due:
-                decision: Transition = (
-                    "CONTINUE"
-                    if self._previous_decision in {"START", "CONTINUE", "SWITCH"}
-                    else self._previous_decision
-                )
-                return self._result(current, decision, 1.0, False, "No feature change")
-
-            previous = self._previous_snapshot
-
-            if not self._api_key:
-                return self._result(current, "UNCERTAIN", 0.0, False, "TYPESAFE_API_KEY missing")
-
-            try:
-                decision, confidence, probabilities, model = await self._ask_jev(
-                    previous,
-                    current,
-                    periodic_review_due,
-                )
-            except Exception as exc:
-                return self._result(
-                    current,
-                    "UNCERTAIN",
-                    0.0,
-                    True,
-                    f"Jev unavailable: {type(exc).__name__}",
-                )
-
-            if confidence < self._confidence_threshold:
-                effective_decision: Transition = "UNCERTAIN"
-                reason = f"Jev confidence {confidence:.3f} below threshold"
+            if ended:
+                self._active = None
+                self._candidate = None
+                self._missing_polls = 0
+                self._unknown_since = None
+                self._attempted.clear()
+                decision = "END"
+            elif self._active is None and len(calls) == 1:
+                key, candidate = next(iter(calls.items()))
+                if self._candidate == key:
+                    self._active = candidate
+                    self._candidate = None
+                    self._attempted.clear()
+                    decision = "START"
+                else:
+                    self._candidate = key
             else:
-                effective_decision = decision
-                self._previous_snapshot = current
-                self._previous_signature = current_signature
-                self._previous_decision = decision
-                self._last_jev_evaluation_at = now
-                if decision in {"START", "SWITCH"}:
-                    self._active_since = now
-                elif decision == "END":
-                    self._active_since = None
-                reason = (
-                    "Jev performed scheduled long-call review"
-                    if periodic_review_due
-                    else "Jev classified changed Teams features"
-                )
+                self._candidate = None
 
-            result = self._result(current, effective_decision, confidence, True, reason)
-            result["probabilities"] = probabilities
-            result["model"] = model
-            result["raw_decision"] = decision
-            return result
+            if healthy and not ended and len(calls) > 1 and self._active is None:
+                ambiguity = tuple(sorted(calls))
+            elif healthy and not ended and self._active and active_key not in calls and calls:
+                ambiguity = tuple(sorted(calls))
+            else:
+                ambiguity = ()
+
+            if not healthy:
+                self._ambiguity_since = now
+            elif ambiguity != self._ambiguity:
+                self._ambiguity = ambiguity
+                self._ambiguity_since = now
+            if (
+                ambiguity
+                and self._api_key
+                and ambiguity not in self._attempted
+                and now - self._ambiguity_since >= JEV_AMBIGUITY_SECONDS
+            ):
+                self._attempted.add(ambiguity)
+                return await self._resolve_ambiguity(current, calls)
+
+            if decision in {"START", "CONTINUE", "END"}:
+                self._previous_decision = decision
+            if decision in {"START", "CONTINUE"}:
+                self._previous_snapshot = current
+            return self._result(
+                current, decision, float(decision != "UNCERTAIN"), False, "Local Teams rules"
+            )
+
+    async def _resolve_ambiguity(
+        self, current: dict[str, Any], calls: dict[tuple[int, str], dict[str, Any]]
+    ) -> dict[str, Any]:
+        day = datetime.now().astimezone().date().isoformat()
+        if self._jev_blocked_day == day:
+            return self._result(current, "UNCERTAIN", 0.0, False, "Jev paused for today: HTTP 402")
+        try:
+            if not await asyncio.to_thread(self._reserve_jev_request, day):
+                return self._result(
+                    current, "UNCERTAIN", 0.0, False, "Jev daily budget unavailable"
+                )
+        except sqlite3.Error:
+            return self._result(current, "UNCERTAIN", 0.0, False, "Jev budget storage unavailable")
+
+        try:
+            raw, confidence, probabilities, model, selected = await self._ask_jev(
+                self._previous_snapshot if self._active else None, current
+            )
+        except Exception as exc:
+            reason = f"Jev unavailable: {type(exc).__name__}"
+            if isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code == 402:
+                reason = "Jev paused for today: HTTP 402"
+                self._jev_blocked_day = day
+                try:
+                    await asyncio.to_thread(self._block_jev, day)
+                except sqlite3.Error:
+                    pass
+            return self._result(current, "UNCERTAIN", 0.0, True, reason)
+
+        decision: Transition = "UNCERTAIN"
+        if confidence >= self._confidence_threshold:
+            replacement = (
+                next(iter(calls.values()))
+                if len(calls) == 1
+                else next(
+                    (window for window in calls.values() if window["window_id"] == selected), None
+                )
+            )
+            allowed = {"CONTINUE", "SWITCH"} if self._active else {"START"}
+            if replacement is not None and raw in allowed:
+                self._active = (
+                    replacement
+                    if raw == "SWITCH"
+                    else {
+                        **replacement,
+                        "title": self._active["title"] if self._active else replacement["title"],
+                    }
+                )
+                self._missing_polls = 0
+                self._unknown_since = None
+                self._previous_snapshot = current
+                self._previous_decision = raw
+                if raw != "CONTINUE":
+                    self._attempted.clear()
+                decision = raw
+        result = self._result(current, decision, confidence, True, "Jev ambiguity review")
+        result.update(probabilities=probabilities, model=model, raw_decision=raw)
+        return result
 
     async def _ask_jev(
         self,
         previous: dict[str, Any] | None,
         current: dict[str, Any],
-        periodic_review: bool,
-    ) -> tuple[Transition, float, dict[str, float], str]:
+    ) -> tuple[Transition, float, dict[str, float], str, str | None]:
         calendar_signal = (
             await self._calendar_signal_service.current_signal()
             if self._calendar_signal_service is not None
             else {"meeting_scheduled_now": False}
         )
+
+        def call_evidence(snapshot: dict[str, Any] | None) -> dict[str, Any] | None:
+            if snapshot is None:
+                return None
+            return {
+                "teams_running": snapshot["teams_running"],
+                "probe_health": snapshot["probe_health"],
+                "windows": [
+                    {
+                        key: window[key]
+                        for key in (
+                            "window_id",
+                            "visible",
+                            "minimized",
+                            "leave_control",
+                            "call_toolbar_control",
+                            "controls_readable",
+                        )
+                    }
+                    for window in snapshot["windows"]
+                    if window["leave_control"]
+                    or window["call_toolbar_control"]
+                    or (self._active and self._identity(window) == self._identity(self._active))
+                ],
+            }
+
         payload = {
             "model": self._model,
             "state": {
-                "previous_snapshot": previous,
-                "current_snapshot": current,
+                "previous_snapshot": call_evidence(previous),
+                "current_snapshot": call_evidence(current),
+                "tracked_window_id": self._active["window_id"] if self._active else None,
                 "previous_stable_decision": self._previous_decision,
-                "periodic_long_call_review": periodic_review,
                 "calendar_signal": calendar_signal,
             },
             "questions": {
                 "call_transition": {
                     "type": "choice",
                     "instructions": (
-                        "Classify the Microsoft Teams call transition. Same call can expose "
-                        "different title aliases in maximized and minimized modes. Treat mode-only "
-                        "title changes as CONTINUE when call-window and toolbar continuity support it. "
-                        "If active call evidence remains but a meeting or participant title, owning "
-                        "call window, or other call identity evidence changes, classify SWITCH. "
+                        "Classify the Microsoft Teams call transition from window and toolbar evidence. "
+                        "A new window handle alone may be a pop-out or a mode change. "
+                        "Only classify SWITCH if the evidence identifies a different call. "
                         "When snapshots contain identical call evidence, classify CONTINUE."
                         " Calendar schedule is supporting context only: it may strengthen START or "
                         "CONTINUE, but a scheduled meeting alone is not active-call evidence. "
@@ -295,6 +462,17 @@ class TeamsCallTransitionService:
                 }
             },
         }
+        candidates = {
+            window["window_id"]: f"Window {window['window_id']}"
+            for window in current["windows"]
+            if window["leave_control"] and window["call_toolbar_control"]
+        }
+        if len(candidates) > 1:
+            payload["questions"]["call_window"] = {
+                "type": "choice",
+                "instructions": "Select the window that owns the active call. Choose unknown if unclear.",
+                "criteria": {**candidates, "unknown": "The active window is unclear"},
+            }
         headers = {"Authorization": f"Bearer {self._api_key}"}
         timeout = httpx.Timeout(self._timeout_seconds)
         async with httpx.AsyncClient(
@@ -313,21 +491,18 @@ class TeamsCallTransitionService:
         allowed = {"START", "CONTINUE", "SWITCH", "END", "UNCERTAIN"}
         if decision not in allowed:
             raise ValueError(f"Unexpected Jev transition: {decision}")
+        window_answer = body["answers"].get("call_window", {})
+        selected = (
+            str(window_answer["choice"])
+            if float(window_answer.get("confidence", 0)) >= self._confidence_threshold
+            else None
+        )
         return (
             decision,  # type: ignore[return-value]
             float(answer["confidence"]),
             {str(key): float(value) for key, value in answer["probabilities"].items()},
             str(body.get("model") or self._model),
-        )
-
-    def _is_periodic_review_due(self, now: float) -> bool:
-        if self._previous_decision not in {"START", "CONTINUE", "SWITCH"}:
-            return False
-        if self._active_since is None or self._last_jev_evaluation_at is None:
-            return False
-        return (
-            now - self._active_since >= LONG_CALL_REVIEW_AFTER_SECONDS
-            and now - self._last_jev_evaluation_at >= LONG_CALL_REVIEW_INTERVAL_SECONDS
+            selected,
         )
 
     def _result(
@@ -338,15 +513,7 @@ class TeamsCallTransitionService:
         evaluated: bool,
         reason: str,
     ) -> dict[str, Any]:
-        call_windows = [
-            window
-            for window in snapshot["windows"]
-            if window["leave_control"] and window["call_toolbar_control"]
-        ]
-        matched_title = next(
-            (window["title"] for window in call_windows if window["title"]),
-            None,
-        )
+        matched_title = (self._active["title"] or "Microsoft Teams call") if self._active else None
         return {
             "supported": snapshot["probe_health"] != "unsupported",
             "decision": decision,

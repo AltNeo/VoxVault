@@ -1,10 +1,12 @@
 import asyncio
 import json
 
+import httpx
+
 from app.core.config import Settings
 from app.services import teams_call_detector
 from app.services.calendar_signal import CalendarSignalService
-from app.services.teams_call_detector import TeamsCallTransitionService, snapshot_signature
+from app.services.teams_call_detector import TeamsCallTransitionService
 
 
 def _snapshot(*, title: str, active: bool = True, minimized: bool = False) -> dict:
@@ -23,6 +25,7 @@ def _snapshot(*, title: str, active: bool = True, minimized: bool = False) -> di
                 "minimized": minimized,
                 "leave_control": active,
                 "call_toolbar_control": active,
+                "controls_readable": True,
                 "controls": ("Leave|hangup-button|enabled=True",),
             }
         ],
@@ -31,88 +34,134 @@ def _snapshot(*, title: str, active: bool = True, minimized: bool = False) -> di
     }
 
 
-def test_snapshot_signature_ignores_observation_time() -> None:
-    first = _snapshot(title="Alpha planning")
-    second = {**first, "observed_at": "2026-09-30T12:00:02+05:30"}
-
-    assert snapshot_signature(first) == snapshot_signature(second)
-
-
-def test_service_only_asks_jev_when_features_change(monkeypatch) -> None:
-    settings = Settings(typesafe_api_key="test-key")
-    service = TeamsCallTransitionService(settings)
-    snapshots = iter([_snapshot(title="Alpha planning"), _snapshot(title="Alpha planning")])
+def test_clear_call_lifecycle_stays_local(monkeypatch, tmp_path) -> None:
+    service = TeamsCallTransitionService(
+        Settings(typesafe_api_key="test-key", sqlite_path=tmp_path / "budget.db")
+    )
+    idle = _snapshot(title="Teams", active=False)
+    call = _snapshot(title="Alpha")
+    minimized = _snapshot(title="Teams", active=False, minimized=True)
+    failed = {**idle, "probe_health": "error", "windows": []}
+    snapshots = iter([idle, call, call, minimized, failed, call, idle, idle, idle])
     monkeypatch.setattr(teams_call_detector, "capture_teams_snapshot", lambda: next(snapshots))
-    calls = 0
 
-    async def fake_ask(previous, current, periodic_review):
+    results = [asyncio.run(service.evaluate()) for _ in range(9)]
+
+    assert [result["decision"] for result in results] == [
+        "UNCERTAIN",
+        "UNCERTAIN",
+        "START",
+        "UNCERTAIN",
+        "UNCERTAIN",
+        "CONTINUE",
+        "UNCERTAIN",
+        "UNCERTAIN",
+        "END",
+    ]
+    assert not (tmp_path / "budget.db").exists()
+
+
+def _ambiguous_snapshot() -> dict:
+    snapshot = _snapshot(title="Alpha")
+    snapshot["windows"].append({**snapshot["windows"][0], "title": "Beta", "window_id": "101"})
+    return snapshot
+
+
+def test_jev_debounce_and_daily_cap_across_restarts(monkeypatch, tmp_path) -> None:
+    settings = Settings(typesafe_api_key="test-key", sqlite_path=tmp_path / "budget.db")
+    now = 0.0
+    calls = 0
+    monkeypatch.setattr(teams_call_detector, "capture_teams_snapshot", _ambiguous_snapshot)
+
+    async def fake_ask(previous, current):
         nonlocal calls
         calls += 1
-        return "START", 0.95, {"START": 0.95, "CONTINUE": 0.05}, "jev-test"
+        return "START", 0.55, {"START": 0.55}, "jev-test", "101"
 
-    monkeypatch.setattr(service, "_ask_jev", fake_ask)
+    def clock():
+        return now
 
-    first = asyncio.run(service.evaluate())
-    second = asyncio.run(service.evaluate())
+    for _ in range(7):
+        service = TeamsCallTransitionService(settings)
+        service._clock = clock
+        monkeypatch.setattr(service, "_ask_jev", fake_ask)
+        assert not asyncio.run(service.evaluate())["evaluated"]
+        now += 29
+        assert not asyncio.run(service.evaluate())["evaluated"]
+        now += 1
+        assert asyncio.run(service.evaluate())["decision"] == "UNCERTAIN"
+        now += 120
+        assert not asyncio.run(service.evaluate())["evaluated"]
 
-    assert first["decision"] == "START"
-    assert second["decision"] == "CONTINUE"
-    assert second["evaluated"] is False
-    assert calls == 1
+    assert calls == 5
 
 
-def test_low_confidence_transition_becomes_uncertain(monkeypatch) -> None:
-    settings = Settings(typesafe_api_key="test-key", typesafe_transition_confidence=0.8)
+def test_jev_billing_error_blocks_requests_after_restart(monkeypatch, tmp_path) -> None:
+    settings = Settings(typesafe_api_key="test-key", sqlite_path=tmp_path / "budget.db")
+    now = 0.0
+    monkeypatch.setattr(teams_call_detector, "capture_teams_snapshot", _ambiguous_snapshot)
+
+    async def billing_error(previous, current):
+        request = httpx.Request("POST", "https://example.com")
+        httpx.Response(402, request=request).raise_for_status()
+
     service = TeamsCallTransitionService(settings)
-    monkeypatch.setattr(
-        teams_call_detector,
-        "capture_teams_snapshot",
-        lambda: _snapshot(title="Beta review"),
+    service._clock = lambda: now
+    monkeypatch.setattr(service, "_ask_jev", billing_error)
+    asyncio.run(service.evaluate())
+    now += 30
+    assert "HTTP 402" in asyncio.run(service.evaluate())["reason"]
+
+    restarted = TeamsCallTransitionService(settings)
+    restarted._clock = lambda: now
+    monkeypatch.setattr(restarted, "_ask_jev", billing_error)
+    asyncio.run(restarted.evaluate())
+    now += 30
+    assert not asyncio.run(restarted.evaluate())["evaluated"]
+
+
+def test_jev_start_uses_selected_window(monkeypatch, tmp_path) -> None:
+    service = TeamsCallTransitionService(
+        Settings(typesafe_api_key="test-key", sqlite_path=tmp_path / "budget.db")
     )
-
-    async def fake_ask(previous, current, periodic_review):
-        return "SWITCH", 0.55, {"SWITCH": 0.55, "CONTINUE": 0.45}, "jev-test"
-
-    monkeypatch.setattr(service, "_ask_jev", fake_ask)
-    first = asyncio.run(service.evaluate())
-    second = asyncio.run(service.evaluate())
-
-    assert first["decision"] == "UNCERTAIN"
-    assert first["raw_decision"] == "SWITCH"
-    assert second["evaluated"] is True
-
-
-def test_long_call_forces_jev_review_after_40_minutes(monkeypatch) -> None:
-    settings = Settings(typesafe_api_key="test-key")
-    service = TeamsCallTransitionService(settings)
-    snapshot = _snapshot(title="Alpha planning")
-    monkeypatch.setattr(teams_call_detector, "capture_teams_snapshot", lambda: snapshot)
     now = 0.0
     service._clock = lambda: now
-    calls: list[bool] = []
+    monkeypatch.setattr(teams_call_detector, "capture_teams_snapshot", _ambiguous_snapshot)
 
-    async def fake_ask(previous, current, periodic_review):
-        calls.append(periodic_review)
-        decision = "START" if previous is None else "CONTINUE"
-        return decision, 0.95, {decision: 0.95}, "jev-test"
+    async def fake_ask(previous, current):
+        return "START", 0.95, {"START": 0.95}, "jev-test", "101"
 
     monkeypatch.setattr(service, "_ask_jev", fake_ask)
-
     asyncio.run(service.evaluate())
-    now = 39 * 60
-    before_threshold = asyncio.run(service.evaluate())
-    now = 40 * 60
-    first_review = asyncio.run(service.evaluate())
-    now = 59 * 60
-    before_interval = asyncio.run(service.evaluate())
-    now = 60 * 60
-    second_review = asyncio.run(service.evaluate())
+    now += 30
+    result = asyncio.run(service.evaluate())
+    assert result["decision"] == "START"
+    assert result["matched_window_title"] == "Beta"
+    assert asyncio.run(service.evaluate())["decision"] == "CONTINUE"
 
-    assert before_threshold["evaluated"] is False
-    assert first_review["evaluated"] is True
-    assert before_interval["evaluated"] is False
-    assert second_review["evaluated"] is True
-    assert calls == [False, True, True]
+
+def test_ambiguity_flicker_does_not_retry_failed_request(monkeypatch, tmp_path) -> None:
+    service = TeamsCallTransitionService(
+        Settings(typesafe_api_key="test-key", sqlite_path=tmp_path / "budget.db")
+    )
+    now = 0.0
+    snapshot = _ambiguous_snapshot()
+    service._clock = lambda: now
+    monkeypatch.setattr(teams_call_detector, "capture_teams_snapshot", lambda: snapshot)
+
+    async def connection_error(previous, current):
+        raise httpx.ConnectError("offline")
+
+    monkeypatch.setattr(service, "_ask_jev", connection_error)
+    asyncio.run(service.evaluate())
+    now += 30
+    assert asyncio.run(service.evaluate())["evaluated"]
+    snapshot = _snapshot(title="Alpha")
+    asyncio.run(service.evaluate())
+    snapshot = _ambiguous_snapshot()
+    asyncio.run(service.evaluate())
+    now += 30
+    assert not asyncio.run(service.evaluate())["evaluated"]
 
 
 def test_jev_receives_only_current_calendar_signal(monkeypatch, tmp_path) -> None:
@@ -135,9 +184,7 @@ def test_jev_receives_only_current_calendar_signal(monkeypatch, tmp_path) -> Non
     calendar = CalendarSignalService(
         calendar_path,
         1800,
-        now=lambda: teams_call_detector.datetime.fromisoformat(
-            "2026-09-30T12:00:00+05:30"
-        ),
+        now=lambda: teams_call_detector.datetime.fromisoformat("2026-09-30T12:00:00+05:30"),
     )
     service = TeamsCallTransitionService(
         Settings(typesafe_api_key="test-key"),
@@ -180,9 +227,11 @@ def test_jev_receives_only_current_calendar_signal(monkeypatch, tmp_path) -> Non
 
     monkeypatch.setattr(teams_call_detector.httpx, "AsyncClient", FakeClient)
 
-    asyncio.run(service._ask_jev(None, _snapshot(title="Team Huddle"), False))
+    asyncio.run(service._ask_jev(None, _snapshot(title="Team Huddle")))
 
     assert captured_payload["state"]["calendar_signal"] == {
         "meeting_scheduled_now": True,
     }
     assert "value" not in captured_payload["state"]["calendar_signal"]
+    assert "Team Huddle" not in json.dumps(captured_payload)
+    assert "process_id" not in json.dumps(captured_payload)
